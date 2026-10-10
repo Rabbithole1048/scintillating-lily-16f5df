@@ -11,6 +11,7 @@
   const TAP_MS = 280;
   const DOUBLE_TAP_MS = 340;
   const MOVE_SLOP = 10;
+  const TAU = Math.PI * 2;
   const SHAPES = ['orb', 'ring', 'capsule', 'squircle', 'blob', 'drop', 'pearl'];
 
   const objects = [];
@@ -270,18 +271,19 @@
     const dt = Math.min(0.033, (t - lastT) / 1000);
     lastT = t;
 
-    for (const o of objects) {
+    for (let i = 0; i < objects.length; i++) {
+      const o = objects[i];
+      const r = radius(o);
+
       if (o.growing) o.target = Math.min(MAX_SCALE, o.target * (1 + 1.15 * dt));
       if (o.pointers.size < 2) o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
 
       if (o.held) continue;
 
-      // gentle wandering current
       const n = t * 0.0004 + o.seed;
       o.vx += Math.sin(n) * 34 * dt;
       o.vy += Math.cos(n * 1.7) * 34 * dt;
 
-      // flings decay to a calm cruising speed; still objects drift off again
       const cruise = 75 / Math.sqrt(o.scale);
       const sp = Math.hypot(o.vx, o.vy);
       if (sp > cruise) {
@@ -290,7 +292,7 @@
         o.vy *= k;
       } else if (sp < cruise * 0.6) {
         if (sp < 1) {
-          const a = Math.random() * Math.PI * 2;
+          const a = Math.random() * TAU;
           o.vx = Math.cos(a) * 5;
           o.vy = Math.sin(a) * 5;
         } else {
@@ -302,8 +304,8 @@
       o.x += o.vx * dt;
       o.y += o.vy * dt;
 
-      const rx = Math.min(radius(o), W / 2);
-      const ry = Math.min(radius(o), H / 2);
+      const rx = Math.min(r, W / 2);
+      const ry = Math.min(r, H / 2);
       if (o.x < rx) { o.x = rx; o.vx = Math.abs(o.vx) * 0.85; o.vr += o.vy * 0.05; }
       if (o.x > W - rx) { o.x = W - rx; o.vx = -Math.abs(o.vx) * 0.85; o.vr -= o.vy * 0.05; }
       if (o.y < ry) { o.y = ry; o.vy = Math.abs(o.vy) * 0.85; o.vr -= o.vx * 0.05; }
@@ -315,9 +317,9 @@
 
     collide(t);
 
-    for (const o of objects) {
-      o.el.style.transform =
-        `translate3d(${o.x - o.w / 2}px, ${o.y - o.h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
+    for (let i = 0; i < objects.length; i++) {
+      const o = objects[i];
+      o.el.style.transform = `translate3d(${o.x - o.w / 2}px, ${o.y - o.h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
     }
     requestAnimationFrame(frame);
   }
@@ -327,6 +329,7 @@
       const a = objects[i];
       const ra = radius(a) * 0.92;
       const ia = a.held ? 0 : 1 / (ra * ra);
+
       for (let j = i + 1; j < objects.length; j++) {
         const b = objects[j];
         const rb = radius(b) * 0.92;
@@ -343,6 +346,7 @@
         const ny = dy / d;
         const overlap = min - d;
         const share = 1 / (ia + ib);
+
         a.x -= nx * overlap * ia * share;
         a.y -= ny * overlap * ia * share;
         b.x += nx * overlap * ib * share;
@@ -350,6 +354,7 @@
 
         const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
         if (rv >= 0) continue;
+
         const jImp = (-(1 + 0.9) * rv) * share;
         a.vx -= jImp * ia * nx;
         a.vy -= jImp * ia * ny;
@@ -371,7 +376,7 @@
   // ---------- first fill of the room ----------
   const startCount = W < 600 ? 7 : 11;
   SHAPES.concat(SHAPES).slice(0, startCount).forEach((shape) => {
-    const a = Math.random() * Math.PI * 2;
+    const a = Math.random() * TAU;
     const s = rand(50, 110);
     create(rand(90, W - 90), rand(110, H - 200), Math.cos(a) * s, Math.sin(a) * s, shape);
   });
