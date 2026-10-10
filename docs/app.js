@@ -26,9 +26,9 @@
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
-  const MAX_OBJECTS = 1000;
+  const MAX_OBJECTS = 100;
   const MAX_SPLIT_CHILDREN = 4;
-  const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 2;
+  const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 4;
   const MAX_FIELDS = 14;
   const MAX_RECURRING_SPAWNERS = 12;
   const RECURRING_SPAWN_INTERVAL = 1800;
@@ -105,7 +105,10 @@
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
 
   function worldPoint(clientX, clientY) {
-    return { x: (clientX - cameraX) / cameraZoom, y: (clientY - cameraY) / cameraZoom };
+    return {
+      x: clamp((clientX - cameraX) / cameraZoom, 0, W),
+      y: clamp((clientY - cameraY) / cameraZoom, 0, H),
+    };
   }
 
   function clampCamera() {
@@ -120,16 +123,18 @@
   function updateCamera() {
     clampCamera();
     mapWorld.style.transform = `translate3d(${cameraX}px, ${cameraY}px, 0) scale(${cameraZoom})`;
+    parallaxTargetX = clamp(-cameraX * 0.035, -22, 22);
+    parallaxTargetY = clamp(-cameraY * 0.035, -22, 22);
+    parallaxTargetDepth = clamp((cameraZoom - 1) * 0.045, -0.025, 0.07);
   }
 
   function beginCameraPinch() {
     const [a, b] = [...cameraPointers.values()];
-    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     cameraPinch = {
       distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
       zoom: cameraZoom,
-      worldX: (midpoint.x - cameraX) / cameraZoom,
-      worldY: (midpoint.y - cameraY) / cameraZoom,
+      worldX: (W / 2 - cameraX) / cameraZoom,
+      worldY: (H / 2 - cameraY) / cameraZoom,
     };
   }
 
@@ -154,11 +159,9 @@
     if (cameraPointers.size >= 2 && cameraPinch) {
       const [a, b] = [...cameraPointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      const midpointX = (a.x + b.x) / 2;
-      const midpointY = (a.y + b.y) / 2;
       cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, 0.45, 2.5);
-      cameraX = midpointX - cameraPinch.worldX * cameraZoom;
-      cameraY = midpointY - cameraPinch.worldY * cameraZoom;
+      cameraX = W / 2 - cameraPinch.worldX * cameraZoom;
+      cameraY = H / 2 - cameraPinch.worldY * cameraZoom;
       updateCamera();
     } else {
       cameraX += e.clientX - pointer.lastX;
@@ -185,19 +188,20 @@
     return true;
   }
 
-  function zoomAt(clientX, clientY, factor) {
-    const anchor = worldPoint(clientX, clientY);
+  function zoomAt(factor) {
+    const anchor = worldPoint(W / 2, H / 2);
     cameraZoom = clamp(cameraZoom * factor, 0.45, 2.5);
-    cameraX = clientX - anchor.x * cameraZoom;
-    cameraY = clientY - anchor.y * cameraZoom;
+    cameraX = W / 2 - anchor.x * cameraZoom;
+    cameraY = H / 2 - anchor.y * cameraZoom;
     updateCamera();
   }
 
-  mapWorld.addEventListener('wheel', (e) => {
-    if (e.target.closest('.obj')) return;
+  function onMapWheel(e) {
+    if (e.target.closest('.obj, .dock, .top, .game-stats, .hint')) return;
     e.preventDefault();
-    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.001));
-  }, { passive: false });
+    zoomAt(Math.exp(-e.deltaY * 0.001));
+  }
+  document.addEventListener('wheel', onMapWheel, { passive: false });
 
   function seedDistantLights() {
     const layer = document.querySelector('.distant-lights');
@@ -336,6 +340,9 @@
           { id: 'recolor', name: 'Change colors', icon: '◉', color: '#ffd66e' },
             { id: 'spawn-point', name: 'Recurring spawn point', icon: '⟳', color: '#7fffe0' },
             { id: 'clear-spawn-points', name: 'Clear spawn points', icon: '⊗', color: '#ff8caa' },
+            { id: 'background-aurora', name: 'Aurora glass', icon: '✧', color: '#70f0ce' },
+            { id: 'background-ocean', name: 'Ocean glass', icon: '◌', color: '#61caff' },
+            { id: 'background-sunset', name: 'Sunset glass', icon: '☼', color: '#ffad7b' },
           ]
         : EFFECTS[mode];
 
@@ -482,6 +489,12 @@
   }
 
   function applyAdvancedAction(action) {
+    if (action.startsWith('background-')) {
+      const preset = action.slice('background-'.length);
+      setBackgroundPreset(preset);
+      setHint(`Background changed to ${preset}.`);
+      return;
+    }
     if (action.startsWith('size-')) {
       sizeMode = action === 'size-random' ? 'random' : Number(action.slice(-1));
       for (const object of objects) {
@@ -514,6 +527,12 @@
       return;
     }
     if (action === 'explode') explodeRandomObject();
+  }
+
+  function setBackgroundPreset(name) {
+    for (const scene of document.querySelectorAll('.backdrop-scene')) {
+      scene.classList.toggle('scene-active', scene.classList.contains(`scene-${name}`));
+    }
   }
 
   function explodeRandomObject() {
@@ -1067,23 +1086,20 @@
   }
 
   // A second finger on empty space still pinches the object you are holding.
-  room.addEventListener('pointerdown', (e) => {
-    if (beginFrameDraw(e)) return;
-    if (chooseSpawnPoint(e)) return;
-    if (placeRecurringSpawnPoint(e)) return;
-    if (!placementType) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    const type = placementType;
-    placementType = null;
-    room.classList.remove('placing');
-    const point = worldPoint(e.clientX, e.clientY);
-    placeField(type, point.x, point.y);
-    setHint(`${type[0].toUpperCase()}${type.slice(1)} placed. Add another force or keep shaping the room.`);
-  }, true);
-
-  room.addEventListener('pointerdown', (e) => {
-    if (e.target !== room) return;
+  document.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.dock, .top, .game-stats, .obj, .field, .recurring-spawn-point')) return;
+    if (beginFrameDraw(e) || chooseSpawnPoint(e) || placeRecurringSpawnPoint(e)) return;
+    if (placementType) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const type = placementType;
+      placementType = null;
+      room.classList.remove('placing');
+      const point = worldPoint(e.clientX, e.clientY);
+      placeField(type, point.x, point.y);
+      setHint(`${type[0].toUpperCase()}${type.slice(1)} placed. Add another force or keep shaping the room.`);
+      return;
+    }
     dismissHint();
     if (cameraPointers.size > 0) {
       onCameraDown(e);
@@ -1095,7 +1111,7 @@
       return;
     }
     onCameraDown(e);
-  });
+  }, true);
 
   addEventListener('pointermove', (e) => {
     if (moveFrameDraw(e)) return;
@@ -1111,9 +1127,6 @@
     const moveX = (p.x - point.x) / moveDt;
     const moveY = (p.y - point.y) / moveDt;
     const dragSpeed = Math.hypot(moveX, moveY);
-    parallaxTargetX = clamp(moveX * 0.2, -100, 100);
-    parallaxTargetY = clamp(moveY * 0.2, -100, 100);
-    parallaxTargetDepth = Math.min(0.06, dragSpeed / 18000);
     p.x = point.x;
     p.y = point.y;
     p.t = now;
@@ -1153,12 +1166,6 @@
     if (!o) return;
     pointerOwner.delete(e.pointerId);
     o.pointers.delete(e.pointerId);
-    if (o.pointers.size === 0) {
-      parallaxTargetX = 0;
-      parallaxTargetY = 0;
-      parallaxTargetDepth = 0;
-    }
-
     if (o.pointers.size === 1) {
       beginDrag(o, [...o.pointers.values()][0]);
       return;
@@ -1259,8 +1266,12 @@
   addEventListener('resize', () => {
     const oldW = W;
     const oldH = H;
+    const centerWorldX = (oldW / 2 - cameraX) / cameraZoom;
+    const centerWorldY = (oldH / 2 - cameraY) / cameraZoom;
     W = innerWidth;
     H = innerHeight;
+    cameraX = W / 2 - centerWorldX * cameraZoom;
+    cameraY = H / 2 - centerWorldY * cameraZoom;
     updateCamera();
     spawnPoint.x = clamp(spawnPoint.x * W / oldW, 24, W - 24);
     spawnPoint.y = clamp(spawnPoint.y * H / oldH, 24, H - 24);
@@ -1298,11 +1309,11 @@
   function frame(t) {
     const dt = Math.min(0.033, (t - lastT) / 1000) * simulationSpeed;
     lastT = t;
-    const parallaxEase = Math.min(1, dt * (pointerOwner.size ? 12 : 2.8));
+    const parallaxEase = Math.min(1, dt * (cameraPointers.size ? 8 : 2.8));
     parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
     parallaxDepth += (parallaxTargetDepth - parallaxDepth) * parallaxEase;
-    backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.08 + parallaxDepth})`;
+    backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.12 + parallaxDepth})`;
 
     for (const spawner of recurringSpawners) {
       if (spawner.paused || t < spawner.nextSpawnAt) continue;

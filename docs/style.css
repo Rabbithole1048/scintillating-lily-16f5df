@@ -3,7 +3,7 @@
 html, body {
   height: 100%;
   overflow: hidden;
-  background: #0c0620;
+  background: linear-gradient(135deg, #110927, #073047 52%, #1d0c36);
   color: #fff;
   font-family: "Space Grotesk", system-ui, sans-serif;
   touch-action: none;
@@ -15,14 +15,14 @@ html, body {
 }
 
 #map-world {
-  position: fixed; inset: 0; z-index: 0;
+  position: fixed; inset: 0; z-index: 1;
   width: 100%; height: 100%;
   transform-origin: 0 0;
   will-change: transform;
 }
 
 /* ---------- Backdrop: layered colour field for the glass to refract ---------- */
-.backdrop { position: fixed; inset: 0; overflow: hidden; z-index: 0; animation: backdrop-color-drift 34s ease-in-out infinite alternate; }
+.backdrop { position: fixed; inset: 0; overflow: hidden; z-index: 0; pointer-events: none; animation: backdrop-color-drift 34s ease-in-out infinite alternate; }
 @keyframes backdrop-color-drift {
   from { filter: hue-rotate(-8deg) saturate(1); }
   to { filter: hue-rotate(8deg) saturate(1.08); }
@@ -51,7 +51,39 @@ html, body {
 .a7 { background: radial-gradient(circle, #ff5c73 0, transparent 60%); bottom: -32vmax; left: -18vmax; opacity: .64; }
 .a8 { background: radial-gradient(circle, #8c7bff 0, transparent 60%); bottom: -32vmax; right: -18vmax; opacity: .42; }
 
-.distant-lights { position: absolute; inset: 0; pointer-events: none; }
+.backdrop-scene {
+  position: absolute; z-index: 1; inset: -12%;
+  opacity: 0;
+  filter: blur(30px) saturate(1.25);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  backdrop-filter: blur(16px) saturate(1.4);
+  transform: scale(1.06);
+  transition: opacity 1.25s ease, filter 1.25s ease, transform 1.25s ease;
+}
+.backdrop-scene.scene-active { opacity: .76; filter: blur(5px) saturate(1.2); transform: scale(1); }
+.scene-aurora {
+  background:
+    radial-gradient(ellipse at 18% 30%, rgba(53,255,207,.54), transparent 43%),
+    radial-gradient(ellipse at 76% 24%, rgba(95,108,255,.62), transparent 46%),
+    radial-gradient(ellipse at 63% 83%, rgba(208,72,255,.5), transparent 48%),
+    linear-gradient(140deg, rgba(9,35,67,.62), rgba(31,12,74,.58));
+}
+.scene-ocean {
+  background:
+    radial-gradient(ellipse at 22% 24%, rgba(39,211,233,.58), transparent 46%),
+    radial-gradient(ellipse at 80% 44%, rgba(52,108,255,.66), transparent 48%),
+    radial-gradient(ellipse at 42% 88%, rgba(36,244,197,.4), transparent 44%),
+    linear-gradient(145deg, rgba(5,48,74,.68), rgba(7,18,59,.62));
+}
+.scene-sunset {
+  background:
+    radial-gradient(ellipse at 18% 25%, rgba(255,106,132,.6), transparent 45%),
+    radial-gradient(ellipse at 78% 32%, rgba(255,185,91,.58), transparent 46%),
+    radial-gradient(ellipse at 54% 86%, rgba(152,74,255,.55), transparent 50%),
+    linear-gradient(145deg, rgba(76,19,79,.62), rgba(13,23,66,.66));
+}
+
+.distant-lights { position: absolute; z-index: 2; inset: 0; pointer-events: none; }
 .distant-light {
   position: absolute;
   width: var(--light-size); height: var(--light-size);
@@ -66,14 +98,14 @@ html, body {
 }
 
 .grid {
-  position: absolute; inset: 0;
+  position: absolute; z-index: 2; inset: 0;
   background-image:
     repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 56px),
     repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 56px);
 }
 
 .grain {
-  position: absolute; inset: -50%;
+  position: absolute; z-index: 3; inset: -50%; pointer-events: none;
   opacity: .09;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
@@ -597,4 +629,5 @@ html, body {
 
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before { animation: none; }
+  .backdrop-scene { transition: none; }
 }
