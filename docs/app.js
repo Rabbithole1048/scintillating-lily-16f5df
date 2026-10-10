@@ -26,7 +26,7 @@
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
-  const MAX_OBJECTS = 100;
+  const MAX_OBJECTS = 1000;
   const MAX_SPLIT_CHILDREN = 4;
   const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 4;
   const MAX_FIELDS = 14;
