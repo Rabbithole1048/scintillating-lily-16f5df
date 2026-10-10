@@ -4,18 +4,23 @@
   const formBtn = document.getElementById('add');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
+  const frameBtn = document.getElementById('draw-frame');
+  const clearBtn = document.getElementById('clear-forms');
   const hint = document.getElementById('hint');
   const countEl = document.getElementById('count');
-  const mergesEl = document.getElementById('merges');
+  const splitsEl = document.getElementById('splits');
   const picker = document.getElementById('picker');
   const pickerTitle = document.getElementById('picker-title');
   const pickerOptions = document.getElementById('picker-options');
   const pickerHint = document.getElementById('picker-hint');
   const pickerClose = document.getElementById('picker-close');
+  const formClickSuppression = new WeakMap();
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
-  const MAX_OBJECTS = 36;
+  const MAX_OBJECTS = 1000;
+  const MAX_SPLIT_CHILDREN = 4;
+  const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 2;
   const MAX_FIELDS = 14;
   const LONG_PRESS_MS = 380;
   const TAP_MS = 280;
@@ -46,6 +51,7 @@
 
   const objects = [];
   const fields = [];
+  const frames = [];
   const pointerOwner = new Map(); // pointerId -> object
   const fieldPointerOwner = new Map();
   let W = innerWidth;
@@ -53,8 +59,12 @@
   let zTop = 1;
   let lastHeld = null;
   let hintTimer = 0;
-  let merges = 0;
+  let splits = 0;
   let placementType = null;
+  let pickerMode = null;
+  let formDrag = null;
+  let frameDrawing = false;
+  let frameDraw = null;
   let lastObjectNotice = false;
   let parallaxX = 0;
   let parallaxY = 0;
@@ -86,10 +96,11 @@
     layer.appendChild(fragment);
   }
 
-  function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360)), initialScale = 0.05) {
+  function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360)), initialScale = 0.05, baseSize = null) {
+    if (objects.length >= MAX_OBJECTS) return null;
     const formIndex = ((tier % SHAPES.length) + SHAPES.length) % SHAPES.length;
     const shape = shapeAt(formIndex);
-    const base = rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
+    const base = baseSize ?? rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
     const w = base;
     const h = shape === 'capsule' ? base * 0.5 : base;
 
@@ -110,7 +121,7 @@
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
       seed: Math.random() * 1000, lastBoop: 0,
-      mergeAfter: performance.now() + 850,
+      splitAfter: performance.now() + 850,
       density: 0.75 + (formIndex % 5) * 0.13,
     };
 
@@ -122,33 +133,34 @@
     }, { passive: false });
 
     objects.push(o);
-    if (objects.length > MAX_OBJECTS) {
-      const oldest = objects.find((x) => !x.held && x !== o);
-      if (oldest) remove(oldest);
-    }
     updateCount();
     return o;
   }
 
-  function remove(o, allowEmpty = false) {
+  function remove(o, allowEmpty = false, immediate = false) {
     const i = objects.indexOf(o);
     if (i === -1 || (!allowEmpty && objects.length <= 1)) return false;
     objects.splice(i, 1);
-    o.el.classList.add('bye');
-    o.el.style.pointerEvents = 'none';
-    setTimeout(() => o.el.remove(), 450);
+    if (immediate) {
+      o.el.remove();
+    } else {
+      o.el.classList.add('bye');
+      o.el.style.pointerEvents = 'none';
+      setTimeout(() => o.el.remove(), 450);
+    }
     updateCount();
     return true;
   }
 
   function updateCount() {
     countEl.textContent = objects.length;
+    room.classList.toggle('dense', objects.length > 120);
     if (objects.length > 1) lastObjectNotice = false;
   }
 
   function updateGameStats() {
-    mergesEl.textContent = merges;
-    if (objects.length === 1 && merges > 0) {
+    splitsEl.textContent = splits;
+    if (objects.length === 1 && splits > 0) {
       showLastObjectNotice();
     }
   }
@@ -165,12 +177,15 @@
   }
 
   function openPicker(mode) {
+    setFrameDrawing(false);
     placementType = null;
     pickerOptions.replaceChildren();
+    pickerMode = mode;
     pickerTitle.textContent = mode === 'forms' ? 'Choose a form' : 'Choose a force';
     pickerHint.textContent = mode === 'forms'
-      ? 'Choose one of 16 forms to add.'
+      ? 'Drag a form into the room, or tap to add it.'
       : 'Choose a force, then place it anywhere in the room.';
+    formBtn.setAttribute('aria-expanded', String(mode === 'forms'));
 
     const choices = mode === 'forms'
       ? FORM_NAMES.map((name, index) => ({ id: String(index), name, icon: '', color: `hsl(${index * 22} 90% 70%)` }))
@@ -195,20 +210,28 @@
       const label = document.createElement('span');
       label.textContent = choice.name;
       option.appendChild(label);
+      if (mode === 'forms') {
+        option.addEventListener('pointerdown', (e) => beginFormDrag(option, Number(choice.id), e));
+      }
       option.addEventListener('click', () => {
         if (mode === 'forms') {
+          if (formClickSuppression.has(option)) {
+            clearTimeout(formClickSuppression.get(option));
+            formClickSuppression.delete(option);
+            return;
+          }
           if (objects.length >= MAX_OBJECTS) {
-            setHint(`Room is full — merge forms before adding more (max ${MAX_OBJECTS}).`);
+            setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
             return;
           }
           const bounds = formBtn.getBoundingClientRect();
           const index = Number(choice.id);
           const hue = index * 22;
           const o = create(bounds.left + bounds.width / 2, bounds.top - 12, rand(-220, 220), rand(-720, -480), index, hue);
-          o.target = rand(0.9, 1.15);
-          ripple(o.x, o.y, 100);
-          closePicker();
-          dismissHint();
+          if (o) {
+            o.target = rand(0.9, 1.15);
+            ripple(o.x, o.y, 100);
+          }
           return;
         }
 
@@ -224,6 +247,197 @@
 
   function closePicker() {
     picker.hidden = true;
+    pickerMode = null;
+    formBtn.setAttribute('aria-expanded', 'false');
+    cancelFormDrag();
+  }
+
+  function beginFormDrag(option, index, e) {
+    if (e.button !== 0 || objects.length >= MAX_OBJECTS) return;
+    clearTimeout(formClickSuppression.get(option));
+    formClickSuppression.delete(option);
+    formDrag = {
+      pointerId: e.pointerId,
+      index,
+      option,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      preview: null,
+    };
+    option.setPointerCapture(e.pointerId);
+  }
+
+  function moveFormDrag(e) {
+    if (!formDrag || formDrag.pointerId !== e.pointerId) return;
+    if (!formDrag.moved && Math.hypot(e.clientX - formDrag.startX, e.clientY - formDrag.startY) > MOVE_SLOP) {
+      formDrag.moved = true;
+      formDrag.preview = document.createElement('div');
+      formDrag.preview.className = `form-drag-preview glass ${SHAPES[formDrag.index]}`;
+      formDrag.preview.style.setProperty('--h', formDrag.index * 22);
+      document.body.appendChild(formDrag.preview);
+      formDrag.option.classList.add('form-drag-source');
+    }
+    if (formDrag.preview) {
+      formDrag.preview.style.left = `${e.clientX}px`;
+      formDrag.preview.style.top = `${e.clientY}px`;
+    }
+    if (formDrag.moved) e.preventDefault();
+  }
+
+  function finishFormDrag(e, cancelled = false) {
+    if (!formDrag || formDrag.pointerId !== e.pointerId) return false;
+    const drag = formDrag;
+    formDrag = null;
+    drag.option.classList.remove('form-drag-source');
+    drag.preview?.remove();
+    if (drag.moved) {
+      const timeout = setTimeout(() => formClickSuppression.delete(drag.option), 500);
+      formClickSuppression.set(drag.option, timeout);
+      if (!cancelled && e.clientX >= 0 && e.clientX <= W && e.clientY >= 0 && e.clientY <= H) {
+        spawnForm(drag.index, e.clientX, e.clientY);
+      }
+    }
+    return true;
+  }
+
+  function cancelFormDrag() {
+    if (!formDrag) return;
+    formDrag.option.classList.remove('form-drag-source');
+    formDrag.preview?.remove();
+    formDrag = null;
+  }
+
+  function spawnForm(index, x, y) {
+    if (objects.length >= MAX_OBJECTS) {
+      setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
+      return null;
+    }
+    const hue = index * 22;
+    const o = create(x, y, rand(-90, 90), rand(-90, 90), index, hue);
+    if (!o) return null;
+    o.target = rand(0.9, 1.15);
+    ripple(o.x, o.y, 100);
+    return o;
+  }
+
+  function setFrameDrawing(active) {
+    frameDrawing = active;
+    frameBtn.setAttribute('aria-pressed', String(active));
+    room.classList.toggle('drawing-frame', active);
+    if (!active && frameDraw) {
+      frameDraw.preview.remove();
+      frameDraw = null;
+    }
+  }
+
+  function updateFramePreview(x, y) {
+    if (!frameDraw) return;
+    const left = Math.min(frameDraw.startX, x);
+    const top = Math.min(frameDraw.startY, y);
+    frameDraw.preview.style.left = `${left}px`;
+    frameDraw.preview.style.top = `${top}px`;
+    frameDraw.preview.style.width = `${Math.abs(x - frameDraw.startX)}px`;
+    frameDraw.preview.style.height = `${Math.abs(y - frameDraw.startY)}px`;
+  }
+
+  function beginFrameDraw(e) {
+    if (!frameDrawing || e.button !== 0) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const bounds = room.getBoundingClientRect();
+    const startX = clamp(e.clientX - bounds.left, 0, bounds.width);
+    const startY = clamp(e.clientY - bounds.top, 0, bounds.height);
+    const preview = document.createElement('div');
+    preview.className = 'boundary-frame frame-preview';
+    room.appendChild(preview);
+    frameDraw = { pointerId: e.pointerId, startX, startY, preview };
+    room.setPointerCapture(e.pointerId);
+    updateFramePreview(startX, startY);
+    return true;
+  }
+
+  function moveFrameDraw(e) {
+    if (!frameDraw || frameDraw.pointerId !== e.pointerId) return false;
+    updateFramePreview(e.clientX, e.clientY);
+    return true;
+  }
+
+  function finishFrameDraw(e, cancelled = false) {
+    if (!frameDraw || frameDraw.pointerId !== e.pointerId) return false;
+    const bounds = room.getBoundingClientRect();
+    const x = clamp(e.clientX - bounds.left, 0, bounds.width);
+    const y = clamp(e.clientY - bounds.top, 0, bounds.height);
+    const left = Math.min(frameDraw.startX, x);
+    const top = Math.min(frameDraw.startY, y);
+    const width = Math.abs(x - frameDraw.startX);
+    const height = Math.abs(y - frameDraw.startY);
+    frameDraw.preview.remove();
+    frameDraw = null;
+    if (!cancelled && width >= 60 && height >= 60) {
+      const el = document.createElement('div');
+      el.className = 'boundary-frame';
+      el.style.left = `${left}px`;
+      el.style.top = `${top}px`;
+      el.style.width = `${width}px`;
+      el.style.height = `${height}px`;
+      room.appendChild(el);
+      frames.push({ el, x: left, y: top, width, height });
+      setHint('Frame drawn. Forms that enter it stay inside.');
+    }
+    setFrameDrawing(false);
+    return true;
+  }
+
+  function clearForms() {
+    for (const object of objects) {
+      clearTimeout(object.timer);
+      object.el.remove();
+    }
+    objects.length = 0;
+    pointerOwner.clear();
+    lastHeld = null;
+    lastObjectNotice = false;
+    updateCount();
+    updateGameStats();
+    setHint('All forms cleared. Choose Forms+ to add new ones.');
+  }
+
+  function keepInsideFrame(o, r) {
+    let frame = frames.find((candidate) => candidate === o.frame);
+    if (!frame) {
+      frame = frames.find((candidate) => (
+        o.x >= candidate.x && o.x <= candidate.x + candidate.width
+        && o.y >= candidate.y && o.y <= candidate.y + candidate.height
+      ));
+      if (frame) o.frame = frame;
+    }
+    if (!frame) return;
+
+    const minX = frame.x + r;
+    const maxX = frame.x + frame.width - r;
+    const minY = frame.y + r;
+    const maxY = frame.y + frame.height - r;
+    if (minX > maxX) {
+      o.x = frame.x + frame.width / 2;
+      o.vx = 0;
+    } else if (o.x < minX) {
+      o.x = minX;
+      o.vx = Math.abs(o.vx) * 0.85;
+    } else if (o.x > maxX) {
+      o.x = maxX;
+      o.vx = -Math.abs(o.vx) * 0.85;
+    }
+    if (minY > maxY) {
+      o.y = frame.y + frame.height / 2;
+      o.vy = 0;
+    } else if (o.y < minY) {
+      o.y = minY;
+      o.vy = Math.abs(o.vy) * 0.85;
+    } else if (o.y > maxY) {
+      o.y = maxY;
+      o.vy = -Math.abs(o.vy) * 0.85;
+    }
   }
 
   function placeField(type, x, y) {
@@ -465,6 +679,7 @@
 
   // A second finger on empty space still pinches the object you are holding.
   room.addEventListener('pointerdown', (e) => {
+    if (beginFrameDraw(e)) return;
     if (!placementType) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -485,6 +700,8 @@
   });
 
   addEventListener('pointermove', (e) => {
+    if (moveFrameDraw(e)) return;
+    moveFormDrag(e);
     if (onFieldMove(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
@@ -528,6 +745,8 @@
   });
 
   function onUp(e) {
+    if (finishFrameDraw(e, e.type !== 'pointerup')) return;
+    if (finishFormDrag(e, e.type !== 'pointerup')) return;
     if (onFieldUp(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
@@ -549,7 +768,7 @@
     const wasGrowing = o.grew;
     stopGrow(o);
     const now = performance.now();
-    if (o.moved && tryMerge(o)) return;
+    if (o.moved && trySplit(o)) return;
     const isTap = !o.moved && !o.pinched && !wasGrowing && now - o.downT < TAP_MS;
 
     if (isTap) {
@@ -586,15 +805,30 @@
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault());
 
-  formBtn.addEventListener('click', () => openPicker('forms'));
+  formBtn.addEventListener('click', () => {
+    if (pickerMode === 'forms' && !picker.hidden) {
+      closePicker();
+    } else {
+      openPicker('forms');
+    }
+  });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
   pickerClose.addEventListener('click', closePicker);
+  frameBtn.addEventListener('click', () => {
+    closePicker();
+    placementType = null;
+    room.classList.remove('placing');
+    setFrameDrawing(!frameDrawing);
+    if (frameDrawing) setHint('Drag across the room to draw a frame.');
+  });
+  clearBtn.addEventListener('click', clearForms);
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closePicker();
       placementType = null;
       room.classList.remove('placing');
+      setFrameDrawing(false);
     }
   });
 
@@ -611,6 +845,16 @@
       field.x = clamp(field.x * W / oldW, 0, W);
       field.y = clamp(field.y * H / oldH, 0, H);
       updateFieldElement(field);
+    }
+    for (const frame of frames) {
+      frame.x *= W / oldW;
+      frame.y *= H / oldH;
+      frame.width *= W / oldW;
+      frame.height *= H / oldH;
+      frame.el.style.left = `${frame.x}px`;
+      frame.el.style.top = `${frame.y}px`;
+      frame.el.style.width = `${frame.width}px`;
+      frame.el.style.height = `${frame.height}px`;
     }
   });
 
@@ -667,6 +911,7 @@
       if (o.y < ry) { o.y = ry; o.vy = Math.abs(o.vy) * 0.85; o.vr -= o.vx * 0.05; }
       if (o.y > H - ry) { o.y = H - ry; o.vy = -Math.abs(o.vy) * 0.85; o.vr += o.vx * 0.05; }
 
+      keepInsideFrame(o, r);
       o.vr += (o.spin - o.vr) * Math.min(1, dt * 0.8);
       o.rot += o.vr * dt;
     }
@@ -681,53 +926,79 @@
   }
 
   function collide(t) {
+    const cellSize = 128;
+    const buckets = new Map();
+    const entries = [];
+    let maxRadius = 0;
+
     for (let i = 0; i < objects.length; i++) {
-      const a = objects[i];
-      const ra = radius(a) * 0.92;
+      const o = objects[i];
+      const cellX = Math.floor(o.x / cellSize);
+      const cellY = Math.floor(o.y / cellSize);
+      const entry = { o, i, radius: radius(o) * 0.92, cellX, cellY };
+      const key = `${cellX}:${cellY}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(entry);
+      entries.push(entry);
+      maxRadius = Math.max(maxRadius, entry.radius);
+    }
+
+    for (const current of entries) {
+      const { o: a, i, radius: ra, cellX, cellY } = current;
+      const range = Math.ceil((ra + maxRadius) / cellSize);
       const ia = a.held ? 0 : 1 / (ra * ra * a.density);
 
-      for (let j = i + 1; j < objects.length; j++) {
-        const b = objects[j];
-        const rb = radius(b) * 0.92;
-        const ib = b.held ? 0 : 1 / (rb * rb * b.density);
-        if (ia + ib === 0) continue;
+      for (let y = cellY - range; y <= cellY + range; y++) {
+        for (let x = cellX - range; x <= cellX + range; x++) {
+          const nearby = buckets.get(`${x}:${y}`);
+          if (!nearby) continue;
+          for (const candidate of nearby) {
+            if (candidate.i <= i) continue;
+            const b = candidate.o;
+            const rb = candidate.radius;
+            const ib = b.held ? 0 : 1 / (rb * rb * b.density);
+            if (ia + ib === 0) continue;
 
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const d = Math.hypot(dx, dy);
-        const min = ra + rb;
-        if (d >= min || d < 0.001) continue;
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const d = Math.hypot(dx, dy);
+            const min = ra + rb;
+            if (d >= min || d < 0.001) continue;
 
-        if (!a.held && !b.held && a.mergeAfter <= t && b.mergeAfter <= t) {
-          merge(a, b, t);
-          return;
-        }
+            const nx = dx / d;
+            const ny = dy / d;
+            const overlap = min - d;
+            const share = 1 / (ia + ib);
 
-        const nx = dx / d;
-        const ny = dy / d;
-        const overlap = min - d;
-        const share = 1 / (ia + ib);
+            if (!a.held && !b.held && a.tier === b.tier
+              && a.splitAfter <= t && b.splitAfter <= t
+              && objects.length + SPLIT_OBJECT_DELTA <= MAX_OBJECTS) {
+              split(a, b, t);
+              return;
+            }
 
-        a.x -= nx * overlap * ia * share;
-        a.y -= ny * overlap * ia * share;
-        b.x += nx * overlap * ib * share;
-        b.y += ny * overlap * ib * share;
+            a.x -= nx * overlap * ia * share;
+            a.y -= ny * overlap * ia * share;
+            b.x += nx * overlap * ib * share;
+            b.y += ny * overlap * ib * share;
 
-        const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        if (rv >= 0) continue;
+            const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+            if (rv >= 0) continue;
 
-        const restitution = 0.7 + ((a.tier + b.tier) % 5) * 0.04;
-        const jImp = (-(1 + restitution) * rv) * share;
-        a.vx -= jImp * ia * nx;
-        a.vy -= jImp * ia * ny;
-        b.vx += jImp * ib * nx;
-        b.vy += jImp * ib * ny;
+            const restitution = 0.7 + ((a.tier + b.tier) % 5) * 0.04;
+            const jImp = (-(1 + restitution) * rv) * share;
+            a.vx -= jImp * ia * nx;
+            a.vy -= jImp * ia * ny;
+            b.vx += jImp * ib * nx;
+            b.vy += jImp * ib * ny;
 
-        if (-rv > 220) {
-          for (const o of [a, b]) {
-            if (!o.held && t - o.lastBoop > 250) {
-              o.lastBoop = t;
-              pulse(o, 'boop');
+            if (-rv > 220) {
+              for (const collided of [a, b]) {
+                if (!collided.held && t - collided.lastBoop > 250) {
+                  collided.lastBoop = t;
+                  pulse(collided, 'boop');
+                }
+              }
             }
           }
         }
@@ -735,45 +1006,73 @@
     }
   }
 
-  function tryMerge(o) {
+  function trySplit(o) {
     if (!objects.includes(o) || o.pointers.size > 0) return false;
+    if (objects.length + SPLIT_OBJECT_DELTA > MAX_OBJECTS) return false;
 
     let closest = null;
     let closestDistance = Infinity;
     for (const other of objects) {
-      if (other === o || other.held || other.mergeAfter > performance.now()) continue;
+      if (other === o || other.held || other.tier !== o.tier || other.splitAfter > performance.now()) continue;
       const d = Math.hypot(other.x - o.x, other.y - o.y);
-      const mergeDistance = (radius(o) + radius(other)) * 1.04;
-      if (d < mergeDistance && d < closestDistance) {
+      const splitDistance = (radius(o) + radius(other)) * 1.04;
+      if (d < splitDistance && d < closestDistance) {
         closest = other;
         closestDistance = d;
       }
     }
     if (!closest) return false;
 
-    merge(o, closest, performance.now());
+    split(o, closest, performance.now());
     return true;
   }
 
-  function merge(a, b, t) {
-    if (a === b || !objects.includes(a) || !objects.includes(b) || objects.length < 2) return;
+  function split(a, b, t) {
+    if (a === b || !objects.includes(a) || !objects.includes(b)
+      || a.tier !== b.tier || objects.length + SPLIT_OBJECT_DELTA > MAX_OBJECTS) return false;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const vx = (a.vx + b.vx) / 2;
     const vy = (a.vy + b.vy) / 2;
     const hue = (a.hue + b.hue) / 2;
+    const childSize = Math.min(a.w * a.scale, b.w * b.scale) * 0.58 / 1.15;
 
-    remove(a, true);
-    const result = create(x, y, vx, vy, 0, hue);
-    remove(b, true);
-    result.target = 0.9;
-    result.lastBoop = t;
+    remove(a, true, true);
+    remove(b, true, true);
+    const spread = childSize * 0.62;
+    const childXLimit = Math.min(childSize / 2, W / 2);
+    const childYLimit = Math.min(childSize / 2, H / 2);
+    const directions = [
+      { x: -1, y: 0 }, { x: 1, y: 0 },
+      { x: 0, y: -1 }, { x: 0, y: 1 },
+    ];
+    const children = directions.map((direction) => {
+      const child = create(
+        clamp(x + direction.x * spread, childXLimit, W - childXLimit),
+        clamp(y + direction.y * spread, childYLimit, H - childYLimit),
+        vx + direction.x * 120,
+        vy + direction.y * 120,
+        a.tier,
+        hue,
+        0.05,
+        childSize,
+      );
+      if (child) {
+        child.target = 0.9;
+        child.lastBoop = t;
+        pulse(child, 'tap');
+      }
+      return child;
+    }).filter(Boolean);
+    if (children.length !== MAX_SPLIT_CHILDREN) {
+      throw new Error(`Expected ${MAX_SPLIT_CHILDREN} split forms, created ${children.length}.`);
+    }
 
-    merges++;
+    splits++;
     updateGameStats();
-    pulse(result, 'tap');
-    ripple(x, y, radius(result) * 2.8);
+    ripple(x, y, childSize * 2.8);
     navigator.vibrate?.([10, 35, 16]);
+    return true;
   }
 
   // ---------- first fill of the room ----------

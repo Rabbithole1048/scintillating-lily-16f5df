@@ -43,11 +43,11 @@
   <div class="game-stats glass-ui" aria-live="polite" aria-atomic="true">
     <span>Goal <b>0 hidden</b></span>
     <i aria-hidden="true"></i>
-    <span>Merges <b id="merges">0</b></span>
+    <span>Splits <b id="splits">0</b></span>
   </div>
 
-  <div id="hint" class="hint" aria-live="polite">
-    <span class="chip glass-ui">Drag forms together to merge</span>
+  <div id="hint" class="hint hide" aria-live="polite">
+    <span class="chip glass-ui">Bring matching forms together to split into four</span>
     <span class="chip glass-ui">Drag forces to move · select to pin or release</span>
   </div>
 
@@ -58,17 +58,17 @@
         <button id="picker-close" class="picker-close" type="button" aria-label="Close picker">×</button>
       </div>
       <div id="picker-options" class="picker-options"></div>
-      <p id="picker-hint" class="picker-hint">Select a form to add it to the room.</p>
+      <p id="picker-hint" class="picker-hint">Drag a form into the room, or tap to add it.</p>
     </div>
     <div class="dock-actions">
-      <button id="add" class="add glass-ui" type="button" aria-label="Choose a form">
+      <button id="add" class="add glass-ui" type="button" aria-label="Choose forms" aria-expanded="false">
         <span class="orbit" aria-hidden="true">
           <span class="dot" style="--i:0"></span>
           <span class="dot" style="--i:1"></span>
           <span class="dot" style="--i:2"></span>
         </span>
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-        <span class="button-label">Forms</span>
+        <span class="button-label">Forms+</span>
       </button>
       <button id="elements" class="add glass-ui" type="button" aria-label="Choose a natural force">
         <span class="button-plus" aria-hidden="true">+</span>
@@ -77,6 +77,14 @@
       <button id="light-effects" class="add glass-ui" type="button" aria-label="Choose a light effect">
         <span class="button-plus" aria-hidden="true">+</span>
         <span class="button-label">Light</span>
+      </button>
+      <button id="draw-frame" class="add glass-ui" type="button" aria-label="Draw an object frame" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m4 16.5 9.7-9.7a2.1 2.1 0 0 1 3 3L7 19.5 3.5 20.5 4 16.5Z M12.5 8.3l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="button-label">Frame</span>
+      </button>
+      <button id="clear-forms" class="add glass-ui" type="button" aria-label="Clear all forms">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v6m4-6v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span class="button-label">Clear</span>
       </button>
     </div>
   </div>

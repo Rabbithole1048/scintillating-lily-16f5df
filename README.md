@@ -1,11 +1,14 @@
 # Floatroom
 
-Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces:
+Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces, with up to 1,000 forms on screen:
 
-- **Drag forms together** to merge any pair into a basic orb.
-- Choose forms from the **Forms** button.
+- **Bring matching forms together** to split them into four smaller forms of the same shape. Different forms bounce apart. Splitting can continue until the 1,000-form limit is reached.
+- Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it near the dock.
+- Use the pencil button to draw a rectangular frame. Forms that enter it stay inside; forms outside continue moving freely. Draw another frame by selecting the pencil again.
+- Use **Clear** to remove all forms at once. Placed forces and drawn frames stay in the room.
+- Controls and gameplay hints stay hidden at startup and appear only when an action needs an explanation.
 - Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Drag a force to move it; select it to pin or release it. Sand and Fire share a radial blast; Sunlight and Magnetlight share an orbiting attraction. Sand/Fire and Laser can remove forms, but one protected form always remains.
-- The displayed zero-object goal is an intentionally locked challenge.
+- The normal effects preserve one form; the **Clear** button intentionally bypasses that protection. The displayed zero-object goal remains an intentionally locked challenge for regular gameplay.
 - Desktop and mobile layouts are supported; small distant lights add depth to the backdrop.
 
 ## Tech
