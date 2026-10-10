@@ -1,5 +1,6 @@
 (() => {
   const room = document.getElementById('room');
+  const mapWorld = document.getElementById('map-world');
   const backdropWorld = document.querySelector('.backdrop-world');
   const formBtn = document.getElementById('add');
   const moreBtn = document.getElementById('more');
@@ -66,6 +67,7 @@
   const recurringSpawners = [];
   const pointerOwner = new Map(); // pointerId -> object
   const fieldPointerOwner = new Map();
+  const cameraPointers = new Map();
   let W = innerWidth;
   let H = innerHeight;
   let zTop = 1;
@@ -84,6 +86,10 @@
   let sizeMode = 'random';
   let colorMode = 'random';
   let simulationSpeed = 1;
+  let cameraZoom = 1;
+  let cameraX = 0;
+  let cameraY = 0;
+  let cameraPinch = null;
   let lastObjectNotice = false;
   let parallaxX = 0;
   let parallaxY = 0;
@@ -97,6 +103,101 @@
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
+
+  function worldPoint(clientX, clientY) {
+    return { x: (clientX - cameraX) / cameraZoom, y: (clientY - cameraY) / cameraZoom };
+  }
+
+  function clampCamera() {
+    const scaledWidth = W * cameraZoom;
+    const scaledHeight = H * cameraZoom;
+    const panSlackX = W * 0.35;
+    const panSlackY = H * 0.35;
+    cameraX = clamp(cameraX, Math.min(0, W - scaledWidth) - panSlackX, panSlackX);
+    cameraY = clamp(cameraY, Math.min(0, H - scaledHeight) - panSlackY, panSlackY);
+  }
+
+  function updateCamera() {
+    clampCamera();
+    mapWorld.style.transform = `translate3d(${cameraX}px, ${cameraY}px, 0) scale(${cameraZoom})`;
+  }
+
+  function beginCameraPinch() {
+    const [a, b] = [...cameraPointers.values()];
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    cameraPinch = {
+      distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      zoom: cameraZoom,
+      worldX: (midpoint.x - cameraX) / cameraZoom,
+      worldY: (midpoint.y - cameraY) / cameraZoom,
+    };
+  }
+
+  function onCameraDown(e) {
+    if (cameraPointers.size >= 2) return;
+    cameraPointers.set(e.pointerId, { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY });
+    room.setPointerCapture(e.pointerId);
+    if (cameraPointers.size === 2) {
+      cameraPinch = null;
+      beginCameraPinch();
+      room.classList.add('map-zooming');
+    } else {
+      room.classList.add('map-panning');
+    }
+  }
+
+  function onCameraMove(e) {
+    const pointer = cameraPointers.get(e.pointerId);
+    if (!pointer) return false;
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    if (cameraPointers.size >= 2 && cameraPinch) {
+      const [a, b] = [...cameraPointers.values()];
+      const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const midpointX = (a.x + b.x) / 2;
+      const midpointY = (a.y + b.y) / 2;
+      cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, 0.45, 2.5);
+      cameraX = midpointX - cameraPinch.worldX * cameraZoom;
+      cameraY = midpointY - cameraPinch.worldY * cameraZoom;
+      updateCamera();
+    } else {
+      cameraX += e.clientX - pointer.lastX;
+      cameraY += e.clientY - pointer.lastY;
+      pointer.lastX = e.clientX;
+      pointer.lastY = e.clientY;
+      updateCamera();
+    }
+    return true;
+  }
+
+  function onCameraUp(e) {
+    if (!cameraPointers.has(e.pointerId)) return false;
+    cameraPointers.delete(e.pointerId);
+    cameraPinch = null;
+    if (cameraPointers.size === 1) {
+      const remaining = cameraPointers.values().next().value;
+      remaining.lastX = remaining.x;
+      remaining.lastY = remaining.y;
+      room.classList.replace('map-zooming', 'map-panning');
+    } else {
+      room.classList.remove('map-panning', 'map-zooming');
+    }
+    return true;
+  }
+
+  function zoomAt(clientX, clientY, factor) {
+    const anchor = worldPoint(clientX, clientY);
+    cameraZoom = clamp(cameraZoom * factor, 0.45, 2.5);
+    cameraX = clientX - anchor.x * cameraZoom;
+    cameraY = clientY - anchor.y * cameraZoom;
+    updateCamera();
+  }
+
+  mapWorld.addEventListener('wheel', (e) => {
+    if (e.target.closest('.obj')) return;
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.001));
+  }, { passive: false });
 
   function seedDistantLights() {
     const layer = document.querySelector('.distant-lights');
@@ -352,7 +453,8 @@
       const timeout = setTimeout(() => formClickSuppression.delete(drag.option), 500);
       formClickSuppression.set(drag.option, timeout);
       if (!cancelled && e.clientX >= 0 && e.clientX <= W && e.clientY >= 0 && e.clientY <= H) {
-        spawnForm(drag.index, e.clientX, e.clientY, true);
+        const point = worldPoint(e.clientX, e.clientY);
+        spawnForm(drag.index, point.x, point.y, true);
       }
     }
     return true;
@@ -455,10 +557,10 @@
     if (!choosingSpawnPoint) return false;
     e.preventDefault();
     e.stopImmediatePropagation();
-    const bounds = room.getBoundingClientRect();
+    const point = worldPoint(e.clientX, e.clientY);
     spawnPoint = {
-      x: clamp(e.clientX - bounds.left, 24, bounds.width - 24),
-      y: clamp(e.clientY - bounds.top, 24, bounds.height - 24),
+      x: clamp(point.x, 24, W - 24),
+      y: clamp(point.y, 24, H - 24),
     };
     choosingSpawnPoint = false;
     room.classList.remove('choosing-spawn');
@@ -518,9 +620,9 @@
     if (!choosingRecurringSpawn) return false;
     e.preventDefault();
     e.stopImmediatePropagation();
-    const bounds = room.getBoundingClientRect();
-    const x = clamp(e.clientX - bounds.left, 24, bounds.width - 24);
-    const y = clamp(e.clientY - bounds.top, 24, bounds.height - 24);
+    const point = worldPoint(e.clientX, e.clientY);
+    const x = clamp(point.x, 24, W - 24);
+    const y = clamp(point.y, 24, H - 24);
     choosingRecurringSpawn = false;
     room.classList.remove('choosing-recurring-spawn');
     addRecurringSpawnPoint(x, y);
@@ -588,9 +690,9 @@
     if (!frameDrawing || e.button !== 0) return false;
     e.preventDefault();
     e.stopImmediatePropagation();
-    const bounds = room.getBoundingClientRect();
-    const startX = clamp(e.clientX - bounds.left, 0, bounds.width);
-    const startY = clamp(e.clientY - bounds.top, 0, bounds.height);
+    const point = worldPoint(e.clientX, e.clientY);
+    const startX = clamp(point.x, 0, W);
+    const startY = clamp(point.y, 0, H);
     const preview = document.createElement('div');
     preview.className = 'boundary-frame frame-preview';
     room.appendChild(preview);
@@ -602,15 +704,16 @@
 
   function moveFrameDraw(e) {
     if (!frameDraw || frameDraw.pointerId !== e.pointerId) return false;
-    updateFramePreview(e.clientX, e.clientY);
+    const point = worldPoint(e.clientX, e.clientY);
+    updateFramePreview(point.x, point.y);
     return true;
   }
 
   function finishFrameDraw(e, cancelled = false) {
     if (!frameDraw || frameDraw.pointerId !== e.pointerId) return false;
-    const bounds = room.getBoundingClientRect();
-    const x = clamp(e.clientX - bounds.left, 0, bounds.width);
-    const y = clamp(e.clientY - bounds.top, 0, bounds.height);
+    const point = worldPoint(e.clientX, e.clientY);
+    const x = clamp(point.x, 0, W);
+    const y = clamp(point.y, 0, H);
     const left = Math.min(frameDraw.startX, x);
     const top = Math.min(frameDraw.startY, y);
     const width = Math.abs(x - frameDraw.startX);
@@ -754,9 +857,10 @@
       toggleFieldPinned(field);
       return;
     }
+    const point = worldPoint(e.clientX, e.clientY);
     const pointer = {
-      field, x: e.clientX, y: e.clientY,
-      startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
+      field, x: point.x, y: point.y,
+      startX: point.x, startY: point.y, lastX: point.x, lastY: point.y,
     };
     field.pointers.set(e.pointerId, pointer);
     fieldPointerOwner.set(e.pointerId, pointer);
@@ -779,8 +883,9 @@
     const pointer = fieldPointerOwner.get(e.pointerId);
     if (!pointer) return false;
     const { field } = pointer;
-    pointer.x = e.clientX;
-    pointer.y = e.clientY;
+    const point = worldPoint(e.clientX, e.clientY);
+    pointer.x = point.x;
+    pointer.y = point.y;
     if (field.pointers.size >= 2) {
       const [a, b] = [...field.pointers.values()];
       const centerX = (a.x + b.x) / 2;
@@ -792,17 +897,17 @@
       field.gesturePinched = true;
       updateFieldElement(field);
     } else {
-      const dx = e.clientX - pointer.lastX;
-      const dy = e.clientY - pointer.lastY;
-      if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > MOVE_SLOP) field.gestureMoved = true;
+      const dx = point.x - pointer.lastX;
+      const dy = point.y - pointer.lastY;
+      if (Math.hypot(point.x - pointer.startX, point.y - pointer.startY) > MOVE_SLOP) field.gestureMoved = true;
       if (field.gestureMoved) {
         field.x = clamp(field.x + dx, 0, W);
         field.y = clamp(field.y + dy, 0, H);
         if (field.type === 'air' || field.type === 'laser') field.angle = Math.atan2(dy, dx);
         updateFieldElement(field);
       }
-      pointer.lastX = e.clientX;
-      pointer.lastY = e.clientY;
+      pointer.lastX = point.x;
+      pointer.lastY = point.y;
     }
     return true;
   }
@@ -927,7 +1032,8 @@
   }
 
   function addPointer(o, e) {
-    const p = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
+    const point = worldPoint(e.clientX, e.clientY);
+    const p = { x: point.x, y: point.y, sx: point.x, sy: point.y, t: performance.now() };
     o.pointers.set(e.pointerId, p);
     pointerOwner.set(e.pointerId, o);
     return p;
@@ -971,36 +1077,45 @@
     const type = placementType;
     placementType = null;
     room.classList.remove('placing');
-    placeField(type, e.clientX, e.clientY);
+    const point = worldPoint(e.clientX, e.clientY);
+    placeField(type, point.x, point.y);
     setHint(`${type[0].toUpperCase()}${type.slice(1)} placed. Add another force or keep shaping the room.`);
   }, true);
 
   room.addEventListener('pointerdown', (e) => {
     if (e.target !== room) return;
     dismissHint();
+    if (cameraPointers.size > 0) {
+      onCameraDown(e);
+      return;
+    }
     if (lastHeld && lastHeld.pointers.size === 1 && objects.includes(lastHeld)) {
       addPointer(lastHeld, e);
       beginPinch(lastHeld);
+      return;
     }
+    onCameraDown(e);
   });
 
   addEventListener('pointermove', (e) => {
     if (moveFrameDraw(e)) return;
     moveFormDrag(e);
+    if (onCameraMove(e)) return;
     if (onFieldMove(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
     const p = o.pointers.get(e.pointerId);
+    const point = worldPoint(e.clientX, e.clientY);
     const now = performance.now();
     const moveDt = Math.max((now - p.t) / 1000, 0.008);
-    const moveX = (p.x - e.clientX) / moveDt;
-    const moveY = (p.y - e.clientY) / moveDt;
+    const moveX = (p.x - point.x) / moveDt;
+    const moveY = (p.y - point.y) / moveDt;
     const dragSpeed = Math.hypot(moveX, moveY);
     parallaxTargetX = clamp(moveX * 0.2, -100, 100);
     parallaxTargetY = clamp(moveY * 0.2, -100, 100);
     parallaxTargetDepth = Math.min(0.06, dragSpeed / 18000);
-    p.x = e.clientX;
-    p.y = e.clientY;
+    p.x = point.x;
+    p.y = point.y;
     p.t = now;
     if (Math.hypot(p.x - p.sx, p.y - p.sy) > MOVE_SLOP) {
       o.moved = true;
@@ -1032,6 +1147,7 @@
   function onUp(e) {
     if (finishFrameDraw(e, e.type !== 'pointerup')) return;
     if (finishFormDrag(e, e.type !== 'pointerup')) return;
+    if (onCameraUp(e)) return;
     if (onFieldUp(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
@@ -1145,6 +1261,7 @@
     const oldH = H;
     W = innerWidth;
     H = innerHeight;
+    updateCamera();
     spawnPoint.x = clamp(spawnPoint.x * W / oldW, 24, W - 24);
     spawnPoint.y = clamp(spawnPoint.y * H / oldH, 24, H - 24);
     if (spawnMarker) updateSpawnMarker();
