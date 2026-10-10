@@ -7,11 +7,18 @@
   const dockActions = document.getElementById('dock-actions');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
+  const phenomenaBtn = document.getElementById('phenomena-effects');
   const frameBtn = document.getElementById('draw-frame');
   const clearObjectsBtn = document.getElementById('clear-forms');
   const clearForcesBtn = document.getElementById('clear-forces');
   const clearFramesBtn = document.getElementById('clear-frames');
   const advancedBtn = document.getElementById('advanced');
+  const gameBtn = document.getElementById('game');
+  const gameLabel = document.getElementById('game-label');
+  const gameScoreEl = document.getElementById('game-score');
+  const gamePointsEl = document.getElementById('game-points');
+  const gameStonesEl = document.getElementById('game-stones');
+  const helpToggle = document.getElementById('help-toggle');
   const speedBtn = document.getElementById('speed');
   const speedLabel = document.getElementById('speed-label');
   const hint = document.getElementById('hint');
@@ -27,6 +34,9 @@
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
   const MAX_OBJECTS = 1000;
+  const MAX_COLLISION_PAIRS_PER_FRAME = 16000;
+  const WORLD_SCALE = 8;
+  const GAME_TARGET = 100;
   const MAX_SPLIT_CHILDREN = 4;
   const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 4;
   const MAX_FIELDS = 14;
@@ -59,6 +69,12 @@
       { id: 'sunlight', name: 'Sunlight', icon: '☼', color: '#ffd36a' },
       { id: 'magnetlight', name: 'Magnetlight', icon: '✳', color: '#ca78ff' },
     ],
+    phenomena: [
+      { id: 'wave', name: 'Wave effect', icon: '〰', color: '#58d9ff' },
+      { id: 'blackhole', name: 'Black hole', icon: '◉', color: '#bd8bff' },
+      { id: 'lightning', name: 'Electricity / lightning', icon: 'ϟ', color: '#fff16b' },
+      { id: 'ice', name: 'Ice', icon: '❄', color: '#9ceaff' },
+    ],
   };
 
   const objects = [];
@@ -68,9 +84,12 @@
   const pointerOwner = new Map(); // pointerId -> object
   const fieldPointerOwner = new Map();
   const cameraPointers = new Map();
-  let W = innerWidth;
-  let H = innerHeight;
+  let VIEW_W = innerWidth;
+  let VIEW_H = innerHeight;
+  let W = VIEW_W * WORLD_SCALE;
+  let H = VIEW_H * WORLD_SCALE;
   let zTop = 1;
+  let collisionCursor = 0;
   let lastHeld = null;
   let hintTimer = 0;
   let splits = 0;
@@ -81,14 +100,14 @@
   let frameDraw = null;
   let choosingSpawnPoint = false;
   let choosingRecurringSpawn = false;
-  let spawnPoint = { x: innerWidth / 2, y: innerHeight / 2 };
+  let spawnPoint = { x: W / 2, y: H / 2 };
   let spawnMarker = null;
   let sizeMode = 'random';
   let colorMode = 'random';
   let simulationSpeed = 1;
   let cameraZoom = 1;
-  let cameraX = 0;
-  let cameraY = 0;
+  let cameraX = VIEW_W / 2 - W / 2;
+  let cameraY = VIEW_H / 2 - H / 2;
   let cameraPinch = null;
   let lastObjectNotice = false;
   let parallaxX = 0;
@@ -97,9 +116,15 @@
   let parallaxTargetY = 0;
   let parallaxDepth = 0;
   let parallaxTargetDepth = 0;
+  let gameActive = false;
+  let gameScore = 0;
+  let activatedStones = 0;
+  let gameStone = null;
+  let fieldHitCycle = { x: 0, y: 0, time: 0, index: 0 };
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const wrap = (value, size) => ((value % size) + size) % size;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
@@ -114,27 +139,40 @@
   function clampCamera() {
     const scaledWidth = W * cameraZoom;
     const scaledHeight = H * cameraZoom;
-    const panSlackX = W * 0.35;
-    const panSlackY = H * 0.35;
-    cameraX = clamp(cameraX, Math.min(0, W - scaledWidth) - panSlackX, panSlackX);
-    cameraY = clamp(cameraY, Math.min(0, H - scaledHeight) - panSlackY, panSlackY);
+    cameraX = clamp(cameraX, VIEW_W - scaledWidth, 0);
+    cameraY = clamp(cameraY, VIEW_H - scaledHeight, 0);
   }
 
   function updateCamera() {
     clampCamera();
+    mapWorld.style.width = `${W}px`;
+    mapWorld.style.height = `${H}px`;
+    room.style.width = `${W}px`;
+    room.style.height = `${H}px`;
     mapWorld.style.transform = `translate3d(${cameraX}px, ${cameraY}px, 0) scale(${cameraZoom})`;
     parallaxTargetX = clamp(-cameraX * 0.035, -22, 22);
     parallaxTargetY = clamp(-cameraY * 0.035, -22, 22);
     parallaxTargetDepth = clamp((cameraZoom - 1) * 0.045, -0.025, 0.07);
   }
 
+  function visibleWorldBounds() {
+    return {
+      left: clamp(-cameraX / cameraZoom, 0, W),
+      right: clamp((VIEW_W - cameraX) / cameraZoom, 0, W),
+      top: clamp(-cameraY / cameraZoom, 0, H),
+      bottom: clamp((VIEW_H - cameraY) / cameraZoom, 0, H),
+    };
+  }
+
   function beginCameraPinch() {
     const [a, b] = [...cameraPointers.values()];
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
     cameraPinch = {
       distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
       zoom: cameraZoom,
-      worldX: (W / 2 - cameraX) / cameraZoom,
-      worldY: (H / 2 - cameraY) / cameraZoom,
+      worldX: (midX - cameraX) / cameraZoom,
+      worldY: (midY - cameraY) / cameraZoom,
     };
   }
 
@@ -160,8 +198,10 @@
       const [a, b] = [...cameraPointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, 0.45, 2.5);
-      cameraX = W / 2 - cameraPinch.worldX * cameraZoom;
-      cameraY = H / 2 - cameraPinch.worldY * cameraZoom;
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      cameraX = midX - cameraPinch.worldX * cameraZoom;
+      cameraY = midY - cameraPinch.worldY * cameraZoom;
       updateCamera();
     } else {
       cameraX += e.clientX - pointer.lastX;
@@ -189,15 +229,15 @@
   }
 
   function zoomAt(factor) {
-    const anchor = worldPoint(W / 2, H / 2);
+    const anchor = worldPoint(VIEW_W / 2, VIEW_H / 2);
     cameraZoom = clamp(cameraZoom * factor, 0.45, 2.5);
-    cameraX = W / 2 - anchor.x * cameraZoom;
-    cameraY = H / 2 - anchor.y * cameraZoom;
+    cameraX = VIEW_W / 2 - anchor.x * cameraZoom;
+    cameraY = VIEW_H / 2 - anchor.y * cameraZoom;
     updateCamera();
   }
 
   function onMapWheel(e) {
-    if (e.target.closest('.obj, .dock, .top, .game-stats, .hint')) return;
+    if (e.target.closest('.obj, .dock, .top, .game-stats, .game-score, .hint')) return;
     e.preventDefault();
     zoomAt(Math.exp(-e.deltaY * 0.001));
   }
@@ -224,7 +264,7 @@
     if (objects.length >= MAX_OBJECTS) return null;
     const formIndex = ((tier % SHAPES.length) + SHAPES.length) % SHAPES.length;
     const shape = shapeAt(formIndex);
-    const base = baseSize ?? rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
+    const base = baseSize ?? rand(80, 140) * (Math.min(VIEW_W, VIEW_H) < 600 ? 0.78 : 1);
     const w = base;
     const h = shape === 'capsule' ? base * 0.5 : base;
 
@@ -234,19 +274,23 @@
     el.style.height = h + 'px';
     el.style.setProperty('--h', hue);
     el.style.zIndex = zTop++;
-    el.innerHTML = `<div class="wob"><div class="glass ${shape}">${shape === 'pearl' ? '<i class="core"></i>' : ''}</div></div>`;
+    const isDvd = Math.random() < 1 / 900;
+    el.classList.toggle('dvd-object', isDvd);
+    el.innerHTML = `<div class="wob"><div class="glass ${shape}">${shape === 'pearl' ? '<i class="core"></i>' : ''}${isDvd ? '<span class="dvd-label">DVD</span>' : ''}</div></div>`;
     room.appendChild(el);
 
     const o = {
-      el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue,
+      el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue, isDvd,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
-      scale: initialScale, target: initialScale === 0.05 ? getConfiguredScale() : rand(0.85, 1.15),
+      scale: isDvd ? Math.min(initialScale, 0.65) : initialScale,
+      target: isDvd ? 0.65 : initialScale === 0.05 ? getConfiguredScale() : rand(0.85, 1.15),
       pointers: new Map(), held: false, growing: false, grew: false,
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
       seed: Math.random() * 1000, lastBoop: 0,
       splitAfter: performance.now() + 850,
       density: 0.75 + (formIndex % 5) * 0.13,
+      playerNudgedUntil: 0,
       frame: null,
     };
 
@@ -290,6 +334,7 @@
   function updateCount() {
     countEl.textContent = objects.length;
     room.classList.toggle('dense', objects.length > 120);
+    document.body.classList.toggle('dense', objects.length > 120);
     if (objects.length > 1) lastObjectNotice = false;
   }
 
@@ -300,6 +345,112 @@
     }
   }
 
+  function updateGameScore() {
+    gameScoreEl.hidden = !gameActive && activatedStones < GAME_TARGET;
+    gamePointsEl.textContent = gameScore;
+    gameStonesEl.textContent = `${activatedStones} / ${GAME_TARGET}`;
+    gameBtn.setAttribute('aria-pressed', String(gameActive));
+    gameBtn.setAttribute('aria-label', gameActive ? 'Stop game' : activatedStones >= GAME_TARGET ? 'Play again' : 'Start game');
+    gameLabel.textContent = gameActive ? 'Stop' : activatedStones >= GAME_TARGET ? 'Again' : 'Game';
+  }
+
+  function randomVisiblePoint(margin = Math.min(190, VIEW_H * 0.2)) {
+    const left = clamp((margin - cameraX) / cameraZoom, 0, W);
+    const right = clamp((VIEW_W - margin - cameraX) / cameraZoom, left, W);
+    const top = clamp((margin - cameraY) / cameraZoom, 0, H);
+    const bottom = clamp((VIEW_H - margin - cameraY) / cameraZoom, top, H);
+    return { x: rand(left, Math.max(left, right)), y: rand(top, Math.max(top, bottom)) };
+  }
+
+  function createGameStone() {
+    if (gameStone) {
+      gameStone.el.remove();
+      gameStone = null;
+    }
+    const el = document.createElement('div');
+    el.className = 'game-stone';
+    el.textContent = '◆';
+    el.setAttribute('aria-hidden', 'true');
+    room.appendChild(el);
+
+    let position = randomVisiblePoint();
+    let greatestClearance = -1;
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const candidate = randomVisiblePoint();
+      const clearance = objects.reduce((closest, object) => (
+        Math.min(closest, Math.hypot(candidate.x - object.x, candidate.y - object.y) - radius(object))
+      ), Infinity);
+      if (clearance > greatestClearance) {
+        greatestClearance = clearance;
+        position = candidate;
+      }
+    }
+    gameStone = { el, x: position.x, y: position.y, radius: 24, penalized: new Set() };
+    el.style.left = `${position.x}px`;
+    el.style.top = `${position.y}px`;
+  }
+
+  function startGame() {
+    gameActive = true;
+    gameScore = 0;
+    activatedStones = 0;
+    for (const object of objects) object.playerNudgedUntil = 0;
+    createGameStone();
+    updateGameScore();
+    setHint('Activate the target with a moving form. Touching it with the form you are dragging costs a point.');
+  }
+
+  function stopGame(won = false) {
+    gameActive = false;
+    if (gameStone) {
+      gameStone.el.remove();
+      gameStone = null;
+    }
+    updateGameScore();
+    if (won) setHint('You won! 100 stones activated.');
+    else setHint('Game stopped. Press Game to start a new round.');
+  }
+
+  function penalizeDraggedTargetContact(object) {
+    if (!gameActive || !gameStone
+      || Math.hypot(object.x - gameStone.x, object.y - gameStone.y) >= radius(object) + gameStone.radius
+      || gameStone.penalized.has(object)) return;
+    gameStone.penalized.add(object);
+    object.playerNudgedUntil = 0;
+    gameScore--;
+    updateGameScore();
+    setHint('Penalty: a form you are dragging touched the target. Send another form instead.');
+  }
+
+  function updateGameCollisions(t) {
+    if (!gameActive || !gameStone) return;
+    for (const object of objects) {
+      const touching = Math.hypot(object.x - gameStone.x, object.y - gameStone.y)
+        < radius(object) + gameStone.radius;
+      if (!touching) {
+        gameStone.penalized.delete(object);
+        continue;
+      }
+      if (object.held) {
+        penalizeDraggedTargetContact(object);
+        continue;
+      }
+      if (object.playerNudgedUntil < t) continue;
+
+      activatedStones++;
+      gameScore++;
+      updateGameScore();
+      ripple(gameStone.x, gameStone.y, 100);
+      if (activatedStones >= GAME_TARGET) {
+        stopGame(true);
+        return;
+      }
+      createGameStone();
+      setHint(`Target activated! ${GAME_TARGET - activatedStones} more to win.`);
+      return;
+    }
+  }
+
   function showLastObjectNotice() {
     if (lastObjectNotice) return;
     lastObjectNotice = true;
@@ -307,8 +458,8 @@
   }
 
   function setHint(message) {
-    hint.classList.remove('hide');
     hint.firstElementChild.textContent = message;
+    hint.classList.toggle('hide', document.body.classList.contains('help-hidden'));
   }
 
   function openPicker(mode) {
@@ -321,11 +472,12 @@
     pickerOptions.replaceChildren();
     pickerMode = mode;
     pickerTitle.textContent = mode === 'forms' ? 'Choose a form'
-      : mode === 'advanced' ? 'Advanced controls' : 'Choose a force';
+      : mode === 'advanced' ? 'Advanced controls'
+        : mode === 'phenomena' ? 'Choose an effect' : 'Choose a force';
     pickerHint.textContent = mode === 'forms'
       ? 'Drag a form into the room, or tap to add it.'
       : mode === 'advanced' ? 'Choose a size, color or action.'
-        : 'Choose a force, then place it anywhere in the room.';
+        : 'Choose an effect, then place it anywhere in the room.';
     formBtn.setAttribute('aria-expanded', String(mode === 'forms'));
 
     const choices = mode === 'forms'
@@ -459,7 +611,7 @@
     if (drag.moved) {
       const timeout = setTimeout(() => formClickSuppression.delete(drag.option), 500);
       formClickSuppression.set(drag.option, timeout);
-      if (!cancelled && e.clientX >= 0 && e.clientX <= W && e.clientY >= 0 && e.clientY <= H) {
+      if (!cancelled && e.clientX >= 0 && e.clientX <= VIEW_W && e.clientY >= 0 && e.clientY <= VIEW_H) {
         const point = worldPoint(e.clientX, e.clientY);
         spawnForm(drag.index, point.x, point.y, true);
       }
@@ -482,7 +634,7 @@
     const hue = colorMode === 'random' ? Math.floor(rand(0, 360)) : index * 22;
     const o = create(x, y, rand(-90, 90), rand(-90, 90), index, hue);
     if (!o) return null;
-    o.target = getConfiguredScale();
+    o.target = o.isDvd ? 0.65 : getConfiguredScale();
     if (dropped) o.frame = frameAt(x, y);
     ripple(o.x, o.y, 100);
     return o;
@@ -804,7 +956,7 @@
   }
 
   function placeField(type, x, y) {
-    const definition = [...EFFECTS.elements, ...EFFECTS.light].find((effect) => effect.id === type);
+    const definition = [...EFFECTS.elements, ...EFFECTS.light, ...EFFECTS.phenomena].find((effect) => effect.id === type);
     if (!definition) return;
     if (fields.length >= MAX_FIELDS) {
       const oldest = fields.shift();
@@ -1002,6 +1154,34 @@
           o.vy -= ny * 220 * strength * dt;
           o.vr += Math.sin(t * 0.002 + field.phase) * 32 * strength * dt;
           break;
+        case 'wave': {
+          const waveDistance = ((t * 0.18 + field.phase * 40) % field.radius);
+          const waveStrength = Math.max(0, 1 - Math.abs(d - waveDistance) / 42);
+          o.vx += nx * 620 * waveStrength * dt;
+          o.vy += ny * 620 * waveStrength * dt;
+          glow = Math.max(glow, waveStrength);
+          break;
+        }
+        case 'blackhole':
+          o.vx -= nx * 520 * strength * dt;
+          o.vy -= ny * 520 * strength * dt;
+          glow = Math.max(glow, strength);
+          break;
+        case 'lightning': {
+          const flicker = Math.sin(t * 0.027 + field.phase);
+          if (flicker > 0.55) {
+            const zap = strength * (flicker - 0.55) * 2.3;
+            o.vx += (nx - ny * 0.45) * 720 * zap * dt;
+            o.vy += (ny + nx * 0.45) * 720 * zap * dt;
+            glow = Math.max(glow, zap);
+          }
+          break;
+        }
+        case 'ice':
+          o.vx *= Math.max(0, 1 - strength * 1.8 * dt);
+          o.vy *= Math.max(0, 1 - strength * 1.8 * dt);
+          glow = Math.max(glow, strength);
+          break;
       }
     }
     o.el.classList.toggle('force-glow', glow > 0);
@@ -1085,9 +1265,71 @@
     }
   }
 
-  // A second finger on empty space still pinches the object you are holding.
+  function promoteGestureToCamera(e) {
+    let pointerId;
+    let point;
+    const objectPointer = pointerOwner.entries().next();
+    if (!objectPointer.done) {
+      [pointerId] = objectPointer.value;
+      const object = pointerOwner.get(pointerId);
+      const pointer = object.pointers.get(pointerId);
+      point = { x: pointer.x, y: pointer.y };
+      object.pointers.delete(pointerId);
+      pointerOwner.delete(pointerId);
+      penalizeDraggedTargetContact(object);
+      object.held = false;
+      stopGrow(object);
+    } else {
+      const fieldPointer = fieldPointerOwner.entries().next();
+      if (fieldPointer.done) return false;
+      [pointerId] = fieldPointer.value;
+      const pointer = fieldPointerOwner.get(pointerId);
+      point = { x: pointer.x, y: pointer.y };
+      pointer.field.pointers.delete(pointerId);
+      pointer.field.el.classList.remove('field-dragging');
+      fieldPointerOwner.delete(pointerId);
+    }
+    const screenX = point.x * cameraZoom + cameraX;
+    const screenY = point.y * cameraZoom + cameraY;
+    cameraPointers.set(pointerId, { x: screenX, y: screenY, lastX: screenX, lastY: screenY });
+    room.setPointerCapture(pointerId);
+    onCameraDown(e);
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return true;
+  }
+
+  function fieldAtPointer(clientX, clientY) {
+    const point = worldPoint(clientX, clientY);
+    const overlapping = fields
+      .map((field) => ({ field, distance: Math.hypot(field.x - point.x, field.y - point.y) }))
+      .filter(({ distance }) => distance <= 30)
+      .sort((a, b) => a.distance - b.distance)
+      .map(({ field }) => field);
+    if (!overlapping.length) return null;
+
+    const now = performance.now();
+    const sameSpot = Math.hypot(clientX - fieldHitCycle.x, clientY - fieldHitCycle.y) < 18
+      && now - fieldHitCycle.time < 700;
+    fieldHitCycle = {
+      x: clientX, y: clientY, time: now,
+      index: sameSpot ? (fieldHitCycle.index + 1) % overlapping.length : 0,
+    };
+    return overlapping[fieldHitCycle.index];
+  }
+
   document.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.dock, .top, .game-stats, .obj, .field, .recurring-spawn-point')) return;
+    if (e.target.closest('.dock, .top, .game-stats, .game-score, .hint, .recurring-spawn-point')) return;
+    if (cameraPointers.size > 0) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onCameraDown(e);
+      return;
+    }
+    if (pointerOwner.size > 0 || fieldPointerOwner.size > 0) {
+      promoteGestureToCamera(e);
+      return;
+    }
     if (beginFrameDraw(e) || chooseSpawnPoint(e) || placeRecurringSpawnPoint(e)) return;
     if (placementType) {
       e.preventDefault();
@@ -1100,16 +1342,15 @@
       setHint(`${type[0].toUpperCase()}${type.slice(1)} placed. Add another force or keep shaping the room.`);
       return;
     }
+    const field = fieldAtPointer(e.clientX, e.clientY);
+    if (field) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onFieldDown(field, e);
+      return;
+    }
+    if (e.target.closest('.obj, .field')) return;
     dismissHint();
-    if (cameraPointers.size > 0) {
-      onCameraDown(e);
-      return;
-    }
-    if (lastHeld && lastHeld.pointers.size === 1 && objects.includes(lastHeld)) {
-      addPointer(lastHeld, e);
-      beginPinch(lastHeld);
-      return;
-    }
     onCameraDown(e);
   }, true);
 
@@ -1132,6 +1373,7 @@
     p.t = now;
     if (Math.hypot(p.x - p.sx, p.y - p.sy) > MOVE_SLOP) {
       o.moved = true;
+      o.playerNudgedUntil = performance.now() + 8000;
       if (!o.growing) clearTimeout(o.timer);
     }
 
@@ -1172,6 +1414,7 @@
     }
     if (o.pointers.size > 0) return;
 
+    penalizeDraggedTargetContact(o);
     o.held = false;
     const wasGrowing = o.grew;
     stopGrow(o);
@@ -1229,6 +1472,18 @@
   });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
+  phenomenaBtn.addEventListener('click', () => openPicker('phenomena'));
+  gameBtn.addEventListener('click', () => {
+    if (gameActive) stopGame();
+    else startGame();
+  });
+  helpToggle.addEventListener('click', () => {
+    const hidden = document.body.classList.toggle('help-hidden');
+    helpToggle.setAttribute('aria-pressed', String(!hidden));
+    helpToggle.setAttribute('aria-label', hidden ? 'Show help text' : 'Hide help text');
+    helpToggle.title = hidden ? 'Show help text' : 'Hide help text';
+    hint.classList.toggle('hide', hidden);
+  });
   advancedBtn.addEventListener('click', () => openPicker('advanced'));
   pickerClose.addEventListener('click', closePicker);
   frameBtn.addEventListener('click', () => {
@@ -1266,40 +1521,50 @@
   addEventListener('resize', () => {
     const oldW = W;
     const oldH = H;
-    const centerWorldX = (oldW / 2 - cameraX) / cameraZoom;
-    const centerWorldY = (oldH / 2 - cameraY) / cameraZoom;
-    W = innerWidth;
-    H = innerHeight;
-    cameraX = W / 2 - centerWorldX * cameraZoom;
-    cameraY = H / 2 - centerWorldY * cameraZoom;
+    const centerWorldX = (VIEW_W / 2 - cameraX) / cameraZoom;
+    const centerWorldY = (VIEW_H / 2 - cameraY) / cameraZoom;
+    VIEW_W = innerWidth;
+    VIEW_H = innerHeight;
+    W = VIEW_W * WORLD_SCALE;
+    H = VIEW_H * WORLD_SCALE;
+    const worldScaleX = W / oldW;
+    const worldScaleY = H / oldH;
+    cameraX = VIEW_W / 2 - centerWorldX * worldScaleX * cameraZoom;
+    cameraY = VIEW_H / 2 - centerWorldY * worldScaleY * cameraZoom;
     updateCamera();
-    spawnPoint.x = clamp(spawnPoint.x * W / oldW, 24, W - 24);
-    spawnPoint.y = clamp(spawnPoint.y * H / oldH, 24, H - 24);
+    spawnPoint.x = clamp(spawnPoint.x * worldScaleX, 24, W - 24);
+    spawnPoint.y = clamp(spawnPoint.y * worldScaleY, 24, H - 24);
     if (spawnMarker) updateSpawnMarker();
     for (const spawner of recurringSpawners) {
-      spawner.x = clamp(spawner.x * W / oldW, 24, W - 24);
-      spawner.y = clamp(spawner.y * H / oldH, 24, H - 24);
+      spawner.x = clamp(spawner.x * worldScaleX, 24, W - 24);
+      spawner.y = clamp(spawner.y * worldScaleY, 24, H - 24);
       spawner.el.style.left = `${spawner.x}px`;
       spawner.el.style.top = `${spawner.y}px`;
     }
     for (const o of objects) {
-      o.x = clamp(o.x * W / oldW, radius(o), W - radius(o));
-      o.y = clamp(o.y * H / oldH, radius(o), H - radius(o));
+      o.x = clamp(o.x * worldScaleX, radius(o), W - radius(o));
+      o.y = clamp(o.y * worldScaleY, radius(o), H - radius(o));
     }
     for (const field of fields) {
-      field.x = clamp(field.x * W / oldW, 0, W);
-      field.y = clamp(field.y * H / oldH, 0, H);
+      field.x = clamp(field.x * worldScaleX, 0, W);
+      field.y = clamp(field.y * worldScaleY, 0, H);
       updateFieldElement(field);
     }
     for (const frame of frames) {
-      frame.x *= W / oldW;
-      frame.y *= H / oldH;
-      frame.width *= W / oldW;
-      frame.height *= H / oldH;
+      frame.x *= worldScaleX;
+      frame.y *= worldScaleY;
+      frame.width *= worldScaleX;
+      frame.height *= worldScaleY;
       frame.el.style.left = `${frame.x}px`;
       frame.el.style.top = `${frame.y}px`;
       frame.el.style.width = `${frame.width}px`;
       frame.el.style.height = `${frame.height}px`;
+    }
+    if (gameStone) {
+      gameStone.x *= worldScaleX;
+      gameStone.y *= worldScaleY;
+      gameStone.el.style.left = `${gameStone.x}px`;
+      gameStone.el.style.top = `${gameStone.y}px`;
     }
   });
 
@@ -1314,6 +1579,7 @@
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
     parallaxDepth += (parallaxTargetDepth - parallaxDepth) * parallaxEase;
     backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.12 + parallaxDepth})`;
+    const visibleBounds = visibleWorldBounds();
 
     for (const spawner of recurringSpawners) {
       if (spawner.paused || t < spawner.nextSpawnAt) continue;
@@ -1357,19 +1623,35 @@
       o.x += o.vx * dt;
       o.y += o.vy * dt;
 
-      const rx = Math.min(r, W / 2);
-      const ry = Math.min(r, H / 2);
-      if (o.x < rx) { o.x = rx; o.vx = Math.abs(o.vx) * 0.85; o.vr += o.vy * 0.05; }
-      if (o.x > W - rx) { o.x = W - rx; o.vx = -Math.abs(o.vx) * 0.85; o.vr -= o.vy * 0.05; }
-      if (o.y < ry) { o.y = ry; o.vy = Math.abs(o.vy) * 0.85; o.vr -= o.vx * 0.05; }
-      if (o.y > H - ry) { o.y = H - ry; o.vy = -Math.abs(o.vy) * 0.85; o.vr += o.vx * 0.05; }
-
-      keepInsideFrame(o, r);
+      if (o.frame && frames.includes(o.frame)) {
+        keepInsideFrame(o, r);
+      } else {
+        const wrapGap = 12 / cameraZoom;
+        const visibleWidth = visibleBounds.right - visibleBounds.left;
+        const visibleHeight = visibleBounds.bottom - visibleBounds.top;
+        if (visibleWidth > 2 * (r + wrapGap)) {
+          if (o.x < visibleBounds.left - r - wrapGap) o.x += visibleWidth + 2 * (r + wrapGap);
+          else if (o.x > visibleBounds.right + r + wrapGap) o.x -= visibleWidth + 2 * (r + wrapGap);
+        } else if (o.x < -r - wrapGap) {
+          o.x += W + 2 * (r + wrapGap);
+        } else if (o.x > W + r + wrapGap) {
+          o.x -= W + 2 * (r + wrapGap);
+        }
+        if (visibleHeight > 2 * (r + wrapGap)) {
+          if (o.y < visibleBounds.top - r - wrapGap) o.y += visibleHeight + 2 * (r + wrapGap);
+          else if (o.y > visibleBounds.bottom + r + wrapGap) o.y -= visibleHeight + 2 * (r + wrapGap);
+        } else if (o.y < -r - wrapGap) {
+          o.y += H + 2 * (r + wrapGap);
+        } else if (o.y > H + r + wrapGap) {
+          o.y -= H + 2 * (r + wrapGap);
+        }
+      }
       o.vr += (o.spin - o.vr) * Math.min(1, dt * 0.8);
       o.rot += o.vr * dt;
     }
 
     collide(t);
+    updateGameCollisions(t);
 
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
@@ -1379,7 +1661,7 @@
   }
 
   function collide(t) {
-    const cellSize = 128;
+    const cellSize = 256;
     const buckets = new Map();
     const entries = [];
     let maxRadius = 0;
@@ -1396,7 +1678,17 @@
       maxRadius = Math.max(maxRadius, entry.radius);
     }
 
-    for (const current of entries) {
+    if (!entries.length) return;
+    const startIndex = collisionCursor % entries.length;
+    collisionCursor = (startIndex + Math.max(1, Math.floor(entries.length / 8))) % entries.length;
+    const pairBudget = Math.min(
+      MAX_COLLISION_PAIRS_PER_FRAME,
+      Math.max(4000, Math.floor(MAX_COLLISION_PAIRS_PER_FRAME * 500 / entries.length)),
+    );
+    let checkedPairs = 0;
+
+    collisionLoop: for (let offset = 0; offset < entries.length; offset++) {
+      const current = entries[(startIndex + offset) % entries.length];
       const { o: a, i, radius: ra, cellX, cellY } = current;
       const range = Math.ceil((ra + maxRadius) / cellSize);
       const ia = a.held ? 0 : 1 / (ra * ra * a.density);
@@ -1407,6 +1699,7 @@
           if (!nearby) continue;
           for (const candidate of nearby) {
             if (candidate.i <= i) continue;
+            if (checkedPairs++ >= pairBudget) break collisionLoop;
             const b = candidate.o;
             const rb = candidate.radius;
             const ib = b.held ? 0 : 1 / (rb * rb * b.density);
@@ -1422,6 +1715,12 @@
             const ny = dy / d;
             const overlap = min - d;
             const share = 1 / (ia + ib);
+
+            if (a.playerNudgedUntil > t || b.playerNudgedUntil > t) {
+              const inheritedNudge = Math.max(a.playerNudgedUntil, b.playerNudgedUntil) - 500;
+              a.playerNudgedUntil = Math.max(a.playerNudgedUntil, inheritedNudge);
+              b.playerNudgedUntil = Math.max(b.playerNudgedUntil, inheritedNudge);
+            }
 
             if (!a.held && !b.held && a.tier === b.tier
               && a.splitAfter <= t && b.splitAfter <= t
@@ -1530,13 +1829,15 @@
   }
 
   // ---------- first fill of the room ----------
-  const startCount = W < 600 ? 7 : 11;
-  const columns = W < 600 ? 3 : Math.max(3, Math.floor(Math.sqrt(startCount * W / H)));
+  updateCamera();
+  const startCount = VIEW_W < 600 ? 7 : 11;
+  const columns = VIEW_W < 600 ? 3 : Math.max(3, Math.floor(Math.sqrt(startCount * VIEW_W / VIEW_H)));
   const rows = Math.ceil(startCount / columns);
-  const marginX = Math.min(130, W * 0.12);
-  const top = Math.min(145, H * 0.18);
-  const bottom = Math.max(top + 100, H - Math.min(185, H * 0.2));
-  const cellWidth = (W - marginX * 2) / columns;
+  const marginX = Math.min(130, VIEW_W * 0.12);
+  const left = W / 2 - VIEW_W / 2 + marginX;
+  const top = H / 2 - Math.min(145, VIEW_H * 0.18);
+  const bottom = H / 2 + Math.max(100, VIEW_H * 0.18);
+  const cellWidth = (VIEW_W - marginX * 2) / columns;
   const cellHeight = (bottom - top) / rows;
   Array.from({ length: startCount }, (_, index) => index % SHAPES.length).forEach((tier, index) => {
     const a = Math.random() * TAU;
@@ -1545,7 +1846,7 @@
     const row = Math.floor(index / columns);
     const jitterX = Math.min(22, cellWidth * 0.12);
     const jitterY = Math.min(22, cellHeight * 0.12);
-    const x = marginX + (column + 0.5) * cellWidth + rand(-jitterX, jitterX);
+    const x = left + (column + 0.5) * cellWidth + rand(-jitterX, jitterX);
     const y = top + (row + 0.5) * cellHeight + rand(-jitterY, jitterY);
     create(x, y, Math.cos(a) * s, Math.sin(a) * s, tier, undefined, 0.9);
   });

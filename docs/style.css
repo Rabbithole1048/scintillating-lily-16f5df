@@ -16,7 +16,7 @@ html, body {
 
 #map-world {
   position: fixed; inset: 0; z-index: 1;
-  width: 100%; height: 100%;
+  width: 100vw; height: 100vh;
   transform-origin: 0 0;
   will-change: transform;
 }
@@ -112,7 +112,7 @@ html, body {
 }
 
 /* ---------- Room + objects ---------- */
-#room { position: fixed; inset: 0; z-index: 1; cursor: grab; touch-action: none; }
+#room { position: absolute; left: 0; top: 0; z-index: 1; cursor: grab; touch-action: none; }
 #room.map-panning { cursor: grabbing; }
 #room.map-zooming { cursor: zoom-in; }
 
@@ -124,6 +124,21 @@ html, body {
   cursor: grab;
 }
 .obj:active { cursor: grabbing; }
+.game-stone {
+  position: absolute; z-index: 2147483647; width: 50px; height: 50px; margin: -25px;
+  display: grid; place-items: center;
+  border: 2px solid rgba(255,255,255,.88); border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 27%, rgba(255,255,255,.9), transparent 20%),
+    radial-gradient(circle, #f7c85f 0 24%, #e96845 25% 48%, #551d62 70%);
+  box-shadow: 0 0 12px rgba(255,189,85,.92), 0 0 32px rgba(255,93,83,.58), inset 0 0 10px rgba(255,255,255,.62);
+  color: #fff8d6; font-size: 22px; text-shadow: 0 0 8px #fff, 0 0 16px #ff982f;
+  animation: target-stone-pulse 1.5s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes target-stone-pulse {
+  to { transform: scale(1.12); box-shadow: 0 0 20px rgba(255,189,85,1), 0 0 44px rgba(255,93,83,.82), inset 0 0 10px rgba(255,255,255,.72); }
+}
 
 /* halo that pulses while an object is being held to grow */
 .obj::before {
@@ -175,6 +190,10 @@ html, body {
   backdrop-filter: none;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.36), inset 0 1px 0 rgba(255,255,255,.72);
 }
+body.dense .backdrop { animation: none; }
+.dense .blob, .dense .pearl .core { animation: none; }
+.dense .obj:not(.growing)::before { display: none; }
+.dense .glass::after { filter: none; opacity: .55; }
 
 /* bright gradient rim */
 .glass::before {
@@ -238,6 +257,44 @@ html, body {
 }
 @keyframes breathe { 50% { transform: scale(1.14); } }
 
+.dvd-object .glass {
+  border-radius: 12%;
+  clip-path: none;
+  mask: none;
+  -webkit-mask: none;
+  background:
+    linear-gradient(145deg, rgba(255,255,255,.32), rgba(89,214,255,.08) 48%, rgba(129,91,255,.28)),
+    rgba(13,20,48,.7);
+  box-shadow: inset 0 0 0 1px rgba(221,248,255,.72), 0 0 18px rgba(99,221,255,.5);
+}
+.dvd-label {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; place-items: center;
+  color: #edfcff;
+  font: 800 19px/1 "Unbounded", sans-serif;
+  letter-spacing: .12em;
+  text-shadow: 0 0 5px #fff, 0 0 13px #5ce8ff, 0 0 24px #b56dff;
+  pointer-events: none;
+}
+.dvd-object .glass::after {
+  top: 0; left: 0; width: 100%; height: 100%;
+  border-radius: inherit;
+  transform: none;
+  filter: none;
+  opacity: .62;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 3px, rgba(205,246,255,.12) 4px, transparent 5px),
+    linear-gradient(0deg, transparent 0 46%, rgba(255,255,255,.56) 49%, rgba(109,239,255,.42) 51%, transparent 55%);
+  animation: vhs-track 2.7s steps(1, end) infinite;
+}
+@keyframes vhs-track {
+  0%, 18% { background-position: 0 0, 0 -100%; opacity: .18; }
+  19%, 24% { background-position: 0 0, 0 0; opacity: .86; }
+  25%, 69% { background-position: 0 0, 0 100%; opacity: .24; }
+  70%, 74% { background-position: 0 0, 0 0; opacity: .72; }
+  75%, 100% { background-position: 0 0, 0 -100%; opacity: .18; }
+}
+
 .ripple {
   position: fixed; left: 0; top: 0; z-index: 1;
   width: var(--s); height: var(--s);
@@ -277,6 +334,7 @@ html, body {
 .brand { font-family: "Unbounded", sans-serif; font-weight: 500; letter-spacing: .02em; }
 .count { font-variant-numeric: tabular-nums; opacity: .9; }
 .count b { font-weight: 600; }
+.right { display: flex; align-items: center; gap: 8px; pointer-events: auto; }
 .game-stats {
   position: fixed; z-index: 3;
   top: calc(72px + env(safe-area-inset-top)); left: 50%;
@@ -291,6 +349,25 @@ html, body {
 }
 .game-stats b { font-weight: 600; }
 .game-stats i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.65); }
+.game-score {
+  position: fixed; z-index: 3;
+  top: calc(112px + env(safe-area-inset-top)); left: 50%;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 15px; border-radius: 999px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
+}
+.game-score[hidden] { display: none; }
+.game-score i { width: 4px; height: 4px; border-radius: 50%; background: rgba(255,255,255,.65); }
+.game-score b { font-variant-numeric: tabular-nums; }
+.help-toggle {
+  width: 30px; height: 30px; flex: none;
+  border: 1px solid rgba(255,255,255,.42); border-radius: 50%;
+  color: #fff; font: 600 15px/1 "Space Grotesk", sans-serif;
+  cursor: pointer; pointer-events: auto;
+}
+.help-toggle:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+body.help-hidden .hint { display: none; }
 .logo-orbit { position: relative; display: inline-block; width: 22px; height: 22px; flex: none; }
 .logo-dot {
   position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px;
@@ -407,8 +484,9 @@ html, body {
   pointer-events: none;
 }
 .dock-actions { display: flex; justify-content: center; align-items: center; gap: 9px; }
-.dock-actions.controls-open { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); justify-items: center; gap: 7px; }
-.dock-actions:not(.controls-open) > .add:not(#add):not(#more) { display: none; }
+.dock-actions.controls-open { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); justify-items: center; gap: 7px; }
+.dock-actions:not(.controls-open) > .add:not(#add):not(#more):not(.game-button) { display: none; }
+.dock-actions:not(.controls-open) > .game-button { display: flex; }
 .add {
   position: relative; isolation: isolate; overflow: hidden;
   width: min(100%, 68px); height: 62px; flex: none;
@@ -593,9 +671,15 @@ html, body {
 .field-laser { border-radius: 14px; }
 .field-sunlight { border-width: 2px; }
 .field-magnetlight::before { inset: -24px; border-style: dotted; }
+.field-wave::before { border-style: dashed; animation: wave-ring 1.8s ease-out infinite; }
+.field-blackhole { background: radial-gradient(circle, #070411 8%, #54217b 26%, transparent 72%); }
+.field-lightning::before { border-style: dotted; animation: lightning-flash .28s steps(2, end) infinite; }
+.field-ice { background: radial-gradient(circle, rgba(223,251,255,.52), rgba(88,217,255,.14) 58%, transparent 74%); }
 .field-burst { animation: field-burst .35s ease-out; }
 @keyframes field-pulse { to { transform: scale(1.08); opacity: .72; } }
 @keyframes field-burst { to { transform: scale(1.8); opacity: 0; } }
+@keyframes wave-ring { 50% { opacity: .38; transform: translate(-50%, -50%) scale(1.08); } }
+@keyframes lightning-flash { 50% { opacity: .25; } }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -628,6 +712,6 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before { animation: none; }
+  .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .game-stone, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before, .dvd-object .glass::after { animation: none; }
   .backdrop-scene { transition: none; }
 }

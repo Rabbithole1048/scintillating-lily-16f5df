@@ -48,8 +48,15 @@
         <span class="level" aria-hidden="true"><i></i></span><span class="label">tilt</span>
       </button>
       <div class="count glass-ui"><b id="count">0</b> floating</div>
+      <button id="help-toggle" class="help-toggle glass-ui" type="button" aria-label="Show help text" aria-pressed="false">?</button>
     </div>
   </header>
+
+  <div id="game-score" class="game-score glass-ui" aria-live="polite" aria-atomic="true" hidden>
+    <span>Points <b id="game-points">0</b></span>
+    <i aria-hidden="true"></i>
+    <span>Stones <b id="game-stones">0 / 100</b></span>
+  </div>
 
   <div class="game-stats glass-ui" aria-live="polite" aria-atomic="true">
     <span>Goal <b>0 hidden</b></span>
@@ -84,9 +91,13 @@
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         <span class="button-label">Forms+</span>
       </button>
-      <button id="more" class="add glass-ui" type="button" aria-label="Show more controls" aria-expanded="false" aria-controls="elements light-effects draw-frame clear-forms clear-forces clear-frames advanced speed">
+      <button id="more" class="add glass-ui" type="button" aria-label="Show more controls" aria-expanded="false" aria-controls="game elements light-effects phenomena-effects draw-frame clear-forms clear-forces clear-frames advanced speed">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Zm6 12 .9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9L18 15Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
         <span class="button-label">Magic</span>
+      </button>
+      <button id="game" class="add glass-ui game-button" type="button" aria-label="Start game" aria-pressed="false">
+        <span class="button-plus" aria-hidden="true">◆</span>
+        <span class="button-label" id="game-label">Game</span>
       </button>
       <button id="elements" class="add glass-ui" type="button" aria-label="Choose a natural force">
         <span class="button-plus" aria-hidden="true">+</span>
@@ -95,6 +106,10 @@
       <button id="light-effects" class="add glass-ui" type="button" aria-label="Choose a light effect">
         <span class="button-plus" aria-hidden="true">+</span>
         <span class="button-label">Light</span>
+      </button>
+      <button id="phenomena-effects" class="add glass-ui" type="button" aria-label="Choose a special effect">
+        <span class="button-plus" aria-hidden="true">+</span>
+        <span class="button-label">Effects</span>
       </button>
       <button id="draw-frame" class="add glass-ui" type="button" aria-label="Draw an object frame" aria-pressed="false">
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m4 16.5 9.7-9.7a2.1 2.1 0 0 1 3 3L7 19.5 3.5 20.5 4 16.5Z M12.5 8.3l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
