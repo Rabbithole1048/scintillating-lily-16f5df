@@ -1,23 +1,51 @@
 (() => {
   const room = document.getElementById('room');
   const backdropWorld = document.querySelector('.backdrop-world');
-  const addBtn = document.getElementById('add');
+  const formBtn = document.getElementById('add');
+  const elementBtn = document.getElementById('elements');
+  const lightBtn = document.getElementById('light-effects');
   const hint = document.getElementById('hint');
   const countEl = document.getElementById('count');
   const mergesEl = document.getElementById('merges');
-  const bestEl = document.getElementById('best-form');
+  const picker = document.getElementById('picker');
+  const pickerTitle = document.getElementById('picker-title');
+  const pickerOptions = document.getElementById('picker-options');
+  const pickerHint = document.getElementById('picker-hint');
+  const pickerClose = document.getElementById('picker-close');
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
   const MAX_OBJECTS = 36;
+  const MAX_FIELDS = 14;
   const LONG_PRESS_MS = 380;
   const TAP_MS = 280;
   const DOUBLE_TAP_MS = 340;
   const MOVE_SLOP = 10;
   const TAU = Math.PI * 2;
-  const SHAPES = ['orb', 'ring', 'capsule', 'squircle', 'blob', 'drop', 'pearl'];
+  const SHAPES = [
+    'orb', 'ring', 'capsule', 'squircle', 'blob', 'drop', 'pearl', 'diamond',
+    'triangle', 'hexagon', 'star', 'moon', 'flower', 'shield', 'cone', 'cross',
+  ];
+  const FORM_NAMES = [
+    'Orb', 'Ring', 'Capsule', 'Squircle', 'Blob', 'Drop', 'Pearl', 'Diamond',
+    'Triangle', 'Hexagon', 'Star', 'Moon', 'Flower', 'Shield', 'Cone', 'Cross',
+  ];
+  const EFFECTS = {
+    elements: [
+      { id: 'sand', name: 'Sand', icon: '⠿', color: '#e5b36e' },
+      { id: 'water', name: 'Water', icon: '◉', color: '#55c9f4' },
+      { id: 'air', name: 'Air', icon: '≋', color: '#d8e7ff' },
+      { id: 'fire', name: 'Fire', icon: '♨', color: '#ff704e' },
+    ],
+    light: [
+      { id: 'laser', name: 'Laser', icon: '⌁', color: '#ff405f' },
+      { id: 'sunlight', name: 'Sunlight', icon: '☼', color: '#ffd36a' },
+      { id: 'magnetlight', name: 'Magnetlight', icon: '✳', color: '#ca78ff' },
+    ],
+  };
 
   const objects = [];
+  const fields = [];
   const pointerOwner = new Map(); // pointerId -> object
   let W = innerWidth;
   let H = innerHeight;
@@ -25,7 +53,8 @@
   let lastHeld = null;
   let hintTimer = 0;
   let merges = 0;
-  let bestTier = 0;
+  let placementType = null;
+  let lastObjectNotice = false;
   let parallaxX = 0;
   let parallaxY = 0;
   let parallaxTargetX = 0;
@@ -38,10 +67,10 @@
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
-  const shapeName = (tier) => shapeAt(tier).toUpperCase();
 
   function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360))) {
-    const shape = shapeAt(tier);
+    const formIndex = ((tier % SHAPES.length) + SHAPES.length) % SHAPES.length;
+    const shape = shapeAt(formIndex);
     const base = rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
     const w = base;
     const h = shape === 'capsule' ? base * 0.5 : base;
@@ -56,13 +85,15 @@
     room.appendChild(el);
 
     const o = {
-      el, wob: el.firstChild, w, h, x, y, vx, vy, tier, hue,
+      el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
       scale: 0.05, target: rand(0.85, 1.15),
       pointers: new Map(), held: false, growing: false, grew: false,
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
-      seed: Math.random() * 1000, lastBoop: 0, mergeUntil: 0,
+      seed: Math.random() * 1000, lastBoop: 0,
+      mergeAfter: performance.now() + 850,
+      density: 0.75 + (formIndex % 5) * 0.13,
     };
 
     el.addEventListener('pointerdown', (e) => onDown(o, e));
@@ -80,23 +111,192 @@
     return o;
   }
 
-  function remove(o) {
+  function remove(o, allowEmpty = false) {
     const i = objects.indexOf(o);
-    if (i === -1) return;
+    if (i === -1 || (!allowEmpty && objects.length <= 1)) return false;
     objects.splice(i, 1);
     o.el.classList.add('bye');
     o.el.style.pointerEvents = 'none';
     setTimeout(() => o.el.remove(), 450);
     updateCount();
+    return true;
   }
 
   function updateCount() {
     countEl.textContent = objects.length;
+    if (objects.length > 1) lastObjectNotice = false;
   }
 
   function updateGameStats() {
     mergesEl.textContent = merges;
-    bestEl.textContent = `${shapeName(bestTier)} ${bestTier + 1}`;
+    if (objects.length === 1 && merges > 0) {
+      showLastObjectNotice();
+    }
+  }
+
+  function showLastObjectNotice() {
+    if (lastObjectNotice) return;
+    lastObjectNotice = true;
+    setHint('One form remains protected. Reaching zero is the hidden challenge.');
+  }
+
+  function setHint(message) {
+    hint.classList.remove('hide');
+    hint.firstElementChild.textContent = message;
+  }
+
+  function openPicker(mode) {
+    placementType = null;
+    pickerOptions.replaceChildren();
+    pickerTitle.textContent = mode === 'forms' ? 'Choose a form' : 'Choose a force';
+    pickerHint.textContent = mode === 'forms'
+      ? 'Choose one of 16 forms to add.'
+      : 'Choose a force, then place it anywhere in the room.';
+
+    const choices = mode === 'forms'
+      ? FORM_NAMES.map((name, index) => ({ id: String(index), name, icon: '', color: `hsl(${index * 22} 90% 70%)` }))
+      : EFFECTS[mode];
+
+    for (const choice of choices) {
+      const option = document.createElement('button');
+      option.className = `picker-option${mode === 'forms' ? ' form-option' : ''}`;
+      option.type = 'button';
+      option.style.setProperty('--option-color', choice.color);
+      option.setAttribute('aria-label', choice.name);
+      if (mode === 'forms') {
+        const sample = document.createElement('span');
+        sample.className = `form-sample glass ${SHAPES[Number(choice.id)]}`;
+        option.appendChild(sample);
+      } else {
+        const icon = document.createElement('span');
+        icon.className = 'effect-icon';
+        icon.textContent = choice.icon;
+        option.appendChild(icon);
+      }
+      const label = document.createElement('span');
+      label.textContent = choice.name;
+      option.appendChild(label);
+      option.addEventListener('click', () => {
+        if (mode === 'forms') {
+          if (objects.length >= MAX_OBJECTS) {
+            setHint(`Room is full — merge forms before adding more (max ${MAX_OBJECTS}).`);
+            return;
+          }
+          const bounds = formBtn.getBoundingClientRect();
+          const index = Number(choice.id);
+          const hue = index * 22;
+          const o = create(bounds.left + bounds.width / 2, bounds.top - 12, rand(-220, 220), rand(-720, -480), index, hue);
+          o.target = rand(0.9, 1.15);
+          ripple(o.x, o.y, 100);
+          closePicker();
+          dismissHint();
+          return;
+        }
+
+        placementType = choice.id;
+        closePicker();
+        room.classList.add('placing');
+        setHint(`Tap an open spot to place ${choice.name}.`);
+      });
+      pickerOptions.appendChild(option);
+    }
+    picker.hidden = false;
+  }
+
+  function closePicker() {
+    picker.hidden = true;
+  }
+
+  function placeField(type, x, y) {
+    const definition = [...EFFECTS.elements, ...EFFECTS.light].find((effect) => effect.id === type);
+    if (!definition) return;
+    if (fields.length >= MAX_FIELDS) {
+      const oldest = fields.shift();
+      oldest.el.remove();
+    }
+
+    const el = document.createElement('div');
+    el.className = `field field-${type}`;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.setProperty('--field-color', definition.color);
+    el.setAttribute('aria-label', `${definition.name} force`);
+    const icon = document.createElement('span');
+    icon.textContent = definition.icon;
+    el.appendChild(icon);
+    room.appendChild(el);
+
+    fields.push({
+      type, x, y, radius: type === 'laser' ? 210 : 190,
+      angle: rand(-Math.PI, Math.PI), phase: rand(0, TAU), el,
+    });
+    updateFieldPositions();
+    ripple(x, y, 90);
+  }
+
+  function updateFieldPositions() {
+    for (const field of fields) {
+      if (field.type === 'laser') {
+        field.el.style.setProperty('--beam-angle', `${field.angle}rad`);
+      }
+    }
+  }
+
+  function applyFields(o, dt, t) {
+    for (const field of fields) {
+      const dx = o.x - field.x;
+      const dy = o.y - field.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const reach = field.radius + radius(o);
+      if (d > reach) continue;
+
+      const strength = 1 - d / reach;
+      const nx = dx / d;
+      const ny = dy / d;
+      switch (field.type) {
+        case 'sand':
+        case 'fire':
+          o.vx += nx * 220 * strength * dt;
+          o.vy += ny * 220 * strength * dt;
+          if (d < 25) {
+            if (objects.length > 1) {
+              remove(o);
+              field.el.classList.add('field-burst');
+              setTimeout(() => field.el.classList.remove('field-burst'), 350);
+              return false;
+            }
+            showLastObjectNotice();
+          }
+          break;
+        case 'water':
+          o.vx += -ny * 190 * strength * dt;
+          o.vy += nx * 190 * strength * dt - 34 * strength * dt;
+          break;
+        case 'air':
+          o.vx += Math.cos(field.angle) * 300 * strength * dt;
+          o.vy += Math.sin(field.angle) * 300 * strength * dt;
+          break;
+        case 'laser': {
+          const along = dx * Math.cos(field.angle) + dy * Math.sin(field.angle);
+          const across = Math.abs(-dx * Math.sin(field.angle) + dy * Math.cos(field.angle));
+          if (along > 0 && along < field.radius && across < radius(o) + 7) {
+            if (objects.length > 1) {
+              remove(o);
+              return false;
+            }
+            showLastObjectNotice();
+          }
+          break;
+        }
+        case 'sunlight':
+        case 'magnetlight':
+          o.vx -= nx * 220 * strength * dt;
+          o.vy -= ny * 220 * strength * dt;
+          o.vr += Math.sin(t * 0.002 + field.phase) * 32 * strength * dt;
+          break;
+      }
+    }
+    return true;
   }
 
   function pulse(o, cls) {
@@ -176,6 +376,17 @@
 
   // A second finger on empty space still pinches the object you are holding.
   room.addEventListener('pointerdown', (e) => {
+    if (!placementType) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const type = placementType;
+    placementType = null;
+    room.classList.remove('placing');
+    placeField(type, e.clientX, e.clientY);
+    setHint(`${type[0].toUpperCase()}${type.slice(1)} placed. Add another force or keep shaping the room.`);
+  }, true);
+
+  room.addEventListener('pointerdown', (e) => {
     if (e.target !== room) return;
     dismissHint();
     if (lastHeld && lastHeld.pointers.size === 1 && objects.includes(lastHeld)) {
@@ -247,7 +458,6 @@
     const wasGrowing = o.grew;
     stopGrow(o);
     const now = performance.now();
-    if (o.moved) o.mergeUntil = now + 1000;
     if (o.moved && tryMerge(o)) return;
     const isTap = !o.moved && !o.pinched && !wasGrowing && now - o.downT < TAP_MS;
 
@@ -285,12 +495,16 @@
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault());
 
-  addBtn.addEventListener('click', () => {
-    const b = addBtn.getBoundingClientRect();
-    const o = create(b.left + b.width / 2, b.top - 10, rand(-320, 320), rand(-900, -600));
-    o.target = rand(0.9, 1.2);
-    ripple(b.left + b.width / 2, b.top + b.height / 2, 110);
-    dismissHint();
+  formBtn.addEventListener('click', () => openPicker('forms'));
+  elementBtn.addEventListener('click', () => openPicker('elements'));
+  lightBtn.addEventListener('click', () => openPicker('light'));
+  pickerClose.addEventListener('click', closePicker);
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closePicker();
+      placementType = null;
+      room.classList.remove('placing');
+    }
   });
 
   addEventListener('resize', () => {
@@ -318,6 +532,7 @@
       if (o.pointers.size < 2) o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
 
       if (o.held) continue;
+      if (!applyFields(o, dt, t)) continue;
 
       const n = t * 0.0004 + o.seed;
       o.vx += Math.sin(n) * 34 * dt;
@@ -367,12 +582,12 @@
     for (let i = 0; i < objects.length; i++) {
       const a = objects[i];
       const ra = radius(a) * 0.92;
-      const ia = a.held ? 0 : 1 / (ra * ra);
+      const ia = a.held ? 0 : 1 / (ra * ra * a.density);
 
       for (let j = i + 1; j < objects.length; j++) {
         const b = objects[j];
         const rb = radius(b) * 0.92;
-        const ib = b.held ? 0 : 1 / (rb * rb);
+        const ib = b.held ? 0 : 1 / (rb * rb * b.density);
         if (ia + ib === 0) continue;
 
         const dx = b.x - a.x;
@@ -381,7 +596,7 @@
         const min = ra + rb;
         if (d >= min || d < 0.001) continue;
 
-        if (!a.held && !b.held && a.tier === b.tier && (a.mergeUntil > t || b.mergeUntil > t)) {
+        if (!a.held && !b.held && a.mergeAfter <= t && b.mergeAfter <= t) {
           merge(a, b, t);
           return;
         }
@@ -399,7 +614,8 @@
         const rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
         if (rv >= 0) continue;
 
-        const jImp = (-(1 + 0.9) * rv) * share;
+        const restitution = 0.7 + ((a.tier + b.tier) % 5) * 0.04;
+        const jImp = (-(1 + restitution) * rv) * share;
         a.vx -= jImp * ia * nx;
         a.vy -= jImp * ia * ny;
         b.vx += jImp * ib * nx;
@@ -423,7 +639,7 @@
     let closest = null;
     let closestDistance = Infinity;
     for (const other of objects) {
-      if (other === o || other.held || other.tier !== o.tier) continue;
+      if (other === o || other.held || other.mergeAfter > performance.now()) continue;
       const d = Math.hypot(other.x - o.x, other.y - o.y);
       const mergeDistance = (radius(o) + radius(other)) * 1.04;
       if (d < mergeDistance && d < closestDistance) {
@@ -438,21 +654,20 @@
   }
 
   function merge(a, b, t) {
+    if (a === b || !objects.includes(a) || !objects.includes(b) || objects.length < 2) return;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const vx = (a.vx + b.vx) / 2;
     const vy = (a.vy + b.vy) / 2;
-    const nextTier = a.tier + 1;
-    const hue = (a.hue + 52) % 360;
+    const hue = (a.hue + b.hue) / 2;
 
-    remove(a);
-    remove(b);
-    const result = create(x, y, vx, vy, nextTier, hue);
-    result.target = clamp(Math.max(a.target, b.target), 0.9, 1.3);
+    remove(a, true);
+    remove(b, true);
+    const result = create(x, y, vx, vy, 0, hue);
+    result.target = 0.9;
     result.lastBoop = t;
 
     merges++;
-    if (nextTier > bestTier) bestTier = nextTier;
     updateGameStats();
     pulse(result, 'tap');
     ripple(x, y, radius(result) * 2.8);
@@ -461,7 +676,7 @@
 
   // ---------- first fill of the room ----------
   const startCount = W < 600 ? 7 : 11;
-  Array.from({ length: startCount }, () => 0).forEach((tier) => {
+  Array.from({ length: startCount }, (_, index) => index % SHAPES.length).forEach((tier) => {
     const a = Math.random() * TAU;
     const s = rand(50, 110);
     create(rand(90, W - 90), rand(110, H - 200), Math.cos(a) * s, Math.sin(a) * s, tier);

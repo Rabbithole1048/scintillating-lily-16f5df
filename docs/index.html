@@ -19,6 +19,9 @@
       <div class="aura a3"></div>
       <div class="aura a4"></div>
       <div class="aura a5"></div>
+      <div class="aura a6"></div>
+      <div class="aura a7"></div>
+      <div class="aura a8"></div>
       <div class="grid"></div>
       <div class="grain"></div>
     </div>
@@ -37,29 +40,44 @@
   </header>
 
   <div class="game-stats glass-ui" aria-live="polite" aria-atomic="true">
-    <span>Best <b id="best-form">ORB 1</b></span>
+    <span>Goal <b>0 hidden</b></span>
     <i aria-hidden="true"></i>
     <span>Merges <b id="merges">0</b></span>
   </div>
 
   <div id="hint" class="hint" aria-live="polite">
-    <span class="chip glass-ui">✋ drag matching forms together</span>
-    <span class="chip glass-ui">🤏 pinch to resize</span>
-    <span class="chip glass-ui">⏺ hold to grow</span>
-    <span class="chip glass-ui">✌︎ double-tap to shrink</span>
-    <span class="chip glass-ui">＋ add forms to keep merging</span>
-    <span id="tilt-chip" class="chip glass-ui" hidden>📱 tilt &amp; shake — bubbles float the other way</span>
+    <span class="chip glass-ui">Drag forms together to merge</span>
+    <span class="chip glass-ui">Place forces to change their flow</span>
   </div>
 
   <div class="dock">
-    <button id="add" class="add glass-ui" type="button" aria-label="Bring another object into the room">
-      <span class="orbit" aria-hidden="true">
-        <span class="dot" style="--i:0"></span>
-        <span class="dot" style="--i:1"></span>
-        <span class="dot" style="--i:2"></span>
-      </span>
-      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
-    </button>
+    <div id="picker" class="picker glass-ui" role="dialog" aria-label="Choose a form or effect" hidden>
+      <div class="picker-heading">
+        <b id="picker-title">Choose a form</b>
+        <button id="picker-close" class="picker-close" type="button" aria-label="Close picker">×</button>
+      </div>
+      <div id="picker-options" class="picker-options"></div>
+      <p id="picker-hint" class="picker-hint">Select a form to add it to the room.</p>
+    </div>
+    <div class="dock-actions">
+      <button id="add" class="add glass-ui" type="button" aria-label="Choose a form">
+        <span class="orbit" aria-hidden="true">
+          <span class="dot" style="--i:0"></span>
+          <span class="dot" style="--i:1"></span>
+          <span class="dot" style="--i:2"></span>
+        </span>
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+        <span class="button-label">Forms</span>
+      </button>
+      <button id="elements" class="add glass-ui" type="button" aria-label="Choose a natural force">
+        <span class="button-plus" aria-hidden="true">+</span>
+        <span class="button-label">Elements</span>
+      </button>
+      <button id="light-effects" class="add glass-ui" type="button" aria-label="Choose a light effect">
+        <span class="button-plus" aria-hidden="true">+</span>
+        <span class="button-label">Light</span>
+      </button>
+    </div>
   </div>
 
   <script src="./app.js"></script>

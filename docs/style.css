@@ -32,10 +32,13 @@ html, body {
   opacity: .85;
 }
 .a1 { background: radial-gradient(circle, #ff3d9a 0, transparent 62%); top: -25vmax; left: -20vmax; }
-.a2 { background: radial-gradient(circle, #3d6bff 0, transparent 62%); top: -10vmax; right: -30vmax; }
-.a3 { background: radial-gradient(circle, #7a2dff 0, transparent 62%); bottom: -35vmax; left: 10vw; }
-.a4 { background: radial-gradient(circle, #ff9a3d 0, transparent 60%); bottom: -30vmax; right: -15vmax; width: 50vmax; height: 50vmax; }
-.a5 { background: radial-gradient(circle, #2dffc4 0, transparent 60%); top: 30vh; left: 30vw; width: 40vmax; height: 40vmax; opacity: .45; }
+.a2 { background: radial-gradient(circle, #3d6bff 0, transparent 62%); top: -20vmax; left: 25vw; opacity: .52; }
+.a3 { background: radial-gradient(circle, #7a2dff 0, transparent 62%); top: -25vmax; right: -20vmax; opacity: .72; }
+.a4 { background: radial-gradient(circle, #ff9a3d 0, transparent 60%); top: 18vh; left: -32vmax; width: 56vmax; height: 56vmax; opacity: .48; }
+.a5 { background: radial-gradient(circle, #2dffc4 0, transparent 60%); top: 18vh; left: 25vw; width: 48vmax; height: 48vmax; opacity: .28; }
+.a6 { background: radial-gradient(circle, #36d9ff 0, transparent 60%); top: 18vh; right: -30vmax; width: 54vmax; height: 54vmax; opacity: .58; }
+.a7 { background: radial-gradient(circle, #ff5c73 0, transparent 60%); bottom: -32vmax; left: -18vmax; opacity: .64; }
+.a8 { background: radial-gradient(circle, #8c7bff 0, transparent 60%); bottom: -32vmax; right: -18vmax; opacity: .42; }
 
 .grid {
   position: absolute; inset: 0;
@@ -97,17 +100,14 @@ html, body {
   position: absolute; inset: 0;
   border-radius: 50%;
   background:
-    radial-gradient(120% 120% at 28% 20%, rgba(255,255,255,.5) 0, rgba(255,255,255,.08) 26%, transparent 48%),
-    radial-gradient(90% 90% at 76% 86%, hsl(var(--h) 100% 70% / .5), transparent 60%),
-    linear-gradient(150deg, hsl(var(--h) 90% 82% / .22), hsl(calc(var(--h) + 60) 90% 55% / .2));
-  -webkit-backdrop-filter: blur(10px) saturate(190%) brightness(1.1);
-  backdrop-filter: blur(10px) saturate(190%) brightness(1.1);
+    radial-gradient(90% 90% at 28% 18%, rgba(255,255,255,.62), transparent 58%),
+    linear-gradient(145deg, hsl(var(--h) 88% 82% / .34), hsl(calc(var(--h) + 50) 84% 58% / .18));
+  -webkit-backdrop-filter: blur(6px) saturate(160%);
+  backdrop-filter: blur(6px) saturate(160%);
   box-shadow:
-    inset 0 0 0 1px rgba(255,255,255,.25),
-    inset 2px 3px 2px -1px rgba(255,255,255,.85),
-    inset -5px -9px 18px -6px hsl(var(--h) 100% 35% / .6),
-    inset 12px 16px 30px -14px rgba(255,255,255,.55),
-    0 26px 50px -18px hsl(var(--h) 90% 15% / .75);
+    inset 0 0 0 1px rgba(255,255,255,.36),
+    inset 0 1px 0 rgba(255,255,255,.72),
+    0 14px 30px -18px hsl(var(--h) 90% 12% / .7);
 }
 
 /* bright gradient rim */
@@ -147,6 +147,15 @@ html, body {
 .capsule  { border-radius: 999px; }
 .capsule::after { top: 12%; left: 12%; width: 50%; height: 28%; }
 .drop     { border-radius: 50% 50% 50% 14%; }
+.diamond  { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.triangle { clip-path: polygon(50% 0, 100% 92%, 0 92%); }
+.hexagon  { clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
+.star     { clip-path: polygon(50% 0, 62% 35%, 98% 36%, 69% 58%, 80% 94%, 50% 72%, 20% 94%, 31% 58%, 2% 36%, 38% 35%); }
+.moon     { clip-path: polygon(72% 4%, 57% 13%, 45% 28%, 40% 47%, 44% 67%, 56% 84%, 73% 96%, 51% 92%, 32% 82%, 18% 65%, 12% 45%, 17% 26%, 31% 11%, 50% 3%); }
+.flower   { clip-path: polygon(50% 0, 63% 20%, 86% 12%, 82% 38%, 100% 50%, 82% 63%, 88% 88%, 62% 81%, 50% 100%, 38% 81%, 12% 88%, 18% 62%, 0 50%, 18% 38%, 12% 12%, 38% 20%); }
+.shield   { clip-path: polygon(50% 0, 94% 16%, 88% 63%, 50% 100%, 12% 63%, 6% 16%); }
+.cone     { clip-path: polygon(50% 0, 94% 88%, 6% 88%); border-radius: 50% 50% 20% 20%; }
+.cross    { clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0 65%, 0 35%, 35% 35%); }
 .blob     { animation: morph 9s ease-in-out infinite; }
 @keyframes morph {
   0%, 100% { border-radius: 62% 38% 46% 54% / 49% 61% 39% 51%; }
@@ -245,20 +254,65 @@ html, body {
   .chip { padding: 7px 10px; font-size: 11px; }
 }
 
-.dock {
-  position: fixed; z-index: 3;
-  left: 50%; bottom: calc(34px + env(safe-area-inset-bottom));
-  width: 76px; height: 76px;
-  margin-left: -38px;
+.picker {
+  position: absolute; z-index: 5;
+  left: 50%; bottom: calc(100% + 14px);
+  width: min(92vw, 440px);
+  max-height: min(54vh, 430px);
+  padding: 14px;
+  border-radius: 22px;
+  transform: translateX(-50%);
+  overflow: auto;
+  pointer-events: auto;
 }
+.picker[hidden] { display: none; }
+.picker-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.picker-heading b { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+.picker-close {
+  width: 30px; height: 30px;
+  border: 1px solid rgba(255,255,255,.28); border-radius: 50%;
+  color: #fff; background: rgba(255,255,255,.1);
+  font: inherit; font-size: 20px; line-height: 1;
+}
+.picker-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
+.picker-option {
+  min-width: 0; min-height: 56px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 12px;
+  color: #fff; background: rgba(255,255,255,.07);
+  font: inherit; font-size: 11px; text-align: left;
+  cursor: pointer;
+}
+.picker-option:hover, .picker-option:focus-visible { outline: none; border-color: var(--option-color); background: rgba(255,255,255,.14); }
+.form-option { flex-direction: column; justify-content: center; gap: 5px; }
+.form-sample {
+  position: relative; inset: auto;
+  width: 28px; height: 28px; flex: none;
+  --h: 300;
+  background: radial-gradient(circle at 35% 25%, rgba(255,255,255,.82), var(--option-color) 56%, rgba(255,255,255,.12));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.45), 0 3px 12px color-mix(in srgb, var(--option-color), transparent 50%);
+}
+.form-sample::before, .form-sample::after { display: none; }
+.form-option > span:last-child { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+.effect-icon { display: grid; width: 24px; height: 24px; flex: none; place-items: center; border-radius: 50%; color: var(--option-color); background: color-mix(in srgb, var(--option-color), transparent 84%); font-size: 16px; }
+.picker-hint { margin-top: 10px; color: rgba(255,255,255,.7); font-size: 11px; }
+
+.dock {
+  position: fixed; z-index: 4;
+  left: 50%; bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(94vw, 310px);
+  pointer-events: none;
+}
+.dock-actions { display: flex; justify-content: center; align-items: flex-end; gap: 12px; }
 .add {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  width: 100%; height: 100%;
+  position: relative; isolation: isolate; overflow: hidden;
+  width: 76px; height: 76px; flex: 0 0 76px;
   border-radius: 50%;
-  display: grid; place-items: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   color: #fff;
+  pointer-events: auto;
   cursor: pointer;
   transition: transform .25s cubic-bezier(.3,1.6,.5,1);
 }
@@ -267,8 +321,8 @@ html, body {
   position: absolute; z-index: 2; inset: 0;
   border-radius: inherit;
   background:
-    linear-gradient(145deg, rgba(255,255,255,.28), rgba(255,255,255,.08) 52%, rgba(180,205,255,.2)),
-    radial-gradient(circle at 50% 100%, rgba(61,107,255,.16), transparent 70%);
+    linear-gradient(145deg, rgba(255,255,255,.24), rgba(255,255,255,.07) 52%, rgba(180,205,255,.16)),
+    radial-gradient(circle at 50% 100%, rgba(61,107,255,.1), transparent 70%);
   -webkit-backdrop-filter: blur(5px) saturate(145%);
   backdrop-filter: blur(5px) saturate(145%);
   box-shadow: inset 0 1px 2px rgba(255,255,255,.48), inset 0 -8px 14px rgba(255,255,255,.07);
@@ -276,7 +330,7 @@ html, body {
   pointer-events: none;
 }
 .add::after {
-  content: ""; position: absolute; z-index: 3; top: 10%; left: 20%; width: 45%; height: 22%;
+  content: ""; position: absolute; z-index: 3; top: 8%; left: 21%; width: 42%; height: 18%;
   border-radius: 50%; transform: rotate(-20deg);
   background: linear-gradient(to bottom, rgba(255,255,255,.8), transparent);
   pointer-events: none;
@@ -284,7 +338,10 @@ html, body {
 .add:hover { transform: scale(1.06); }
 .add:active { transform: scale(.88); }
 .add:focus-visible { outline: 2px solid #fff; outline-offset: 6px; }
-.add svg { position: relative; z-index: 4; filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+.add svg, .button-plus, .button-label { position: relative; z-index: 4; pointer-events: none; }
+.add svg { filter: drop-shadow(0 2px 6px rgba(0,0,0,.35)); }
+.button-plus { font-size: 24px; font-weight: 400; line-height: 1; }
+.button-label { font-size: 10px; letter-spacing: .04em; }
 
 .orbit {
   position: absolute; inset: 0; z-index: 1;
@@ -304,8 +361,56 @@ html, body {
 .dot:nth-child(2) { --c: #3d9bff; }
 .dot:nth-child(3) { --c: #2dffc4; }
 
+.placing { cursor: crosshair; }
+.field {
+  position: absolute; z-index: 1;
+  width: 56px; height: 56px; margin: -28px;
+  display: grid; place-items: center;
+  border: 1px solid color-mix(in srgb, var(--field-color), white 40%);
+  border-radius: 50%;
+  color: var(--field-color);
+  background: radial-gradient(circle, color-mix(in srgb, var(--field-color), transparent 78%), transparent 72%);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--field-color), transparent 54%), inset 0 0 14px color-mix(in srgb, var(--field-color), transparent 75%);
+  pointer-events: none;
+  animation: field-pulse 2.8s ease-in-out infinite alternate;
+}
+.field::before {
+  content: ""; position: absolute; inset: -18px;
+  border: 1px solid color-mix(in srgb, var(--field-color), transparent 76%);
+  border-radius: 50%;
+}
+.field span { position: relative; z-index: 1; font-size: 23px; line-height: 1; text-shadow: 0 0 14px var(--field-color); }
+.field-sand { border-style: dashed; }
+.field-water { animation-duration: 1.8s; }
+.field-fire { box-shadow: 0 0 35px color-mix(in srgb, var(--field-color), transparent 38%); }
+.field-laser { border-radius: 14px; }
+.field-laser::before {
+  inset: auto; left: 50%; top: 50%; width: 150px; height: 3px;
+  border: 0; border-radius: 99px;
+  background: var(--field-color);
+  box-shadow: 0 0 10px var(--field-color), 0 0 24px var(--field-color);
+  transform: translateY(-50%) rotate(var(--beam-angle));
+  transform-origin: left center;
+}
+.field-sunlight { border-width: 2px; }
+.field-magnetlight::before { inset: -24px; border-style: dotted; }
+.field-burst { animation: field-burst .35s ease-out; }
+@keyframes field-pulse { to { transform: scale(1.08); opacity: .72; } }
+@keyframes field-burst { to { transform: scale(1.8); opacity: 0; } }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
+@media (max-width: 480px) {
+  .dock { bottom: calc(18px + env(safe-area-inset-bottom)); width: 100%; }
+  .dock-actions { gap: 8px; }
+  .add { width: 68px; height: 68px; flex-basis: 68px; }
+  .picker { width: min(94vw, 420px); padding: 11px; }
+  .picker-options { gap: 5px; }
+  .picker-option { min-height: 52px; padding: 5px; font-size: 10px; }
+  .form-sample { width: 25px; height: 25px; }
+  .hint { bottom: calc(108px + env(safe-area-inset-bottom)); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .blob, .pearl .core, .orbit { animation: none; }
+  .blob, .pearl .core, .orbit, .field { animation: none; }
 }
