@@ -2,6 +2,8 @@
   const room = document.getElementById('room');
   const backdropWorld = document.querySelector('.backdrop-world');
   const formBtn = document.getElementById('add');
+  const moreBtn = document.getElementById('more');
+  const dockActions = document.getElementById('dock-actions');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
   const frameBtn = document.getElementById('draw-frame');
@@ -27,6 +29,8 @@
   const MAX_SPLIT_CHILDREN = 4;
   const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 2;
   const MAX_FIELDS = 14;
+  const MAX_RECURRING_SPAWNERS = 12;
+  const RECURRING_SPAWN_INTERVAL = 1800;
   const MIN_FIELD_RADIUS = 70;
   const MAX_FIELD_RADIUS = 760;
   const LONG_PRESS_MS = 380;
@@ -59,6 +63,7 @@
   const objects = [];
   const fields = [];
   const frames = [];
+  const recurringSpawners = [];
   const pointerOwner = new Map(); // pointerId -> object
   const fieldPointerOwner = new Map();
   let W = innerWidth;
@@ -73,6 +78,7 @@
   let frameDrawing = false;
   let frameDraw = null;
   let choosingSpawnPoint = false;
+  let choosingRecurringSpawn = false;
   let spawnPoint = { x: innerWidth / 2, y: innerHeight / 2 };
   let spawnMarker = null;
   let sizeMode = 'random';
@@ -203,7 +209,9 @@
   function openPicker(mode) {
     setFrameDrawing(false);
     choosingSpawnPoint = false;
+    choosingRecurringSpawn = false;
     room.classList.remove('choosing-spawn');
+    room.classList.remove('choosing-recurring-spawn');
     placementType = null;
     pickerOptions.replaceChildren();
     pickerMode = mode;
@@ -225,7 +233,9 @@
           { id: 'size-random', name: 'Random sizes', icon: '↗', color: '#9fffd9' },
           { id: 'explode', name: 'Explode random object', icon: '✹', color: '#ff9c72' },
           { id: 'recolor', name: 'Change colors', icon: '◉', color: '#ffd66e' },
-        ]
+            { id: 'spawn-point', name: 'Recurring spawn point', icon: '⟳', color: '#7fffe0' },
+            { id: 'clear-spawn-points', name: 'Clear spawn points', icon: '⊗', color: '#ff8caa' },
+          ]
         : EFFECTS[mode];
 
     for (const choice of choices) {
@@ -385,6 +395,22 @@
       setHint('Object colors changed.');
       return;
     }
+    if (action === 'spawn-point') {
+      if (recurringSpawners.length >= MAX_RECURRING_SPAWNERS) {
+        setHint(`The room supports up to ${MAX_RECURRING_SPAWNERS} recurring spawn points.`);
+        return;
+      }
+      closePicker();
+      choosingRecurringSpawn = true;
+      room.classList.add('choosing-recurring-spawn');
+      setHint('Tap the room to add a recurring spawn point. Press Escape to cancel.');
+      return;
+    }
+    if (action === 'clear-spawn-points') {
+      clearRecurringSpawnPoints();
+      setHint('All recurring spawn points cleared.');
+      return;
+    }
     if (action === 'explode') explodeRandomObject();
   }
 
@@ -438,6 +464,66 @@
     room.classList.remove('choosing-spawn');
     updateSpawnMarker();
     setHint('Spawn point moved. Tap a form to spawn it there.');
+    return true;
+  }
+
+  function addRecurringSpawnPoint(x, y) {
+    if (recurringSpawners.length >= MAX_RECURRING_SPAWNERS) {
+      setHint(`The room supports up to ${MAX_RECURRING_SPAWNERS} recurring spawn points.`);
+      return;
+    }
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'recurring-spawn-point';
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.innerHTML = '<span aria-hidden="true">+</span>';
+    const spawner = { x, y, el, paused: false, nextSpawnAt: performance.now() + RECURRING_SPAWN_INTERVAL };
+    const update = () => {
+      el.classList.toggle('spawn-paused', spawner.paused);
+      el.setAttribute('aria-label', `Recurring spawn point ${spawner.paused ? 'paused, activate' : 'active, pause'}`);
+      el.title = `${spawner.paused ? 'Paused' : 'Spawning'} — click to ${spawner.paused ? 'resume' : 'pause'}, double-click or press Delete to remove`;
+    };
+    el.addEventListener('click', () => {
+      spawner.paused = !spawner.paused;
+      update();
+    });
+    el.addEventListener('dblclick', () => removeRecurringSpawnPoint(spawner));
+    el.addEventListener('keydown', (event) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      event.preventDefault();
+      removeRecurringSpawnPoint(spawner);
+    });
+    room.appendChild(el);
+    recurringSpawners.push(spawner);
+    update();
+    ripple(x, y, 70);
+    setHint('Recurring spawn point added. It creates a random form every 1.8 seconds; click it to pause.');
+  }
+
+  function removeRecurringSpawnPoint(spawner) {
+    const index = recurringSpawners.indexOf(spawner);
+    if (index === -1) return;
+    recurringSpawners.splice(index, 1);
+    spawner.el.remove();
+    setHint('Recurring spawn point removed.');
+  }
+
+  function clearRecurringSpawnPoints() {
+    for (const spawner of recurringSpawners) spawner.el.remove();
+    recurringSpawners.length = 0;
+  }
+
+  function placeRecurringSpawnPoint(e) {
+    if (!choosingRecurringSpawn) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const bounds = room.getBoundingClientRect();
+    const x = clamp(e.clientX - bounds.left, 24, bounds.width - 24);
+    const y = clamp(e.clientY - bounds.top, 24, bounds.height - 24);
+    choosingRecurringSpawn = false;
+    room.classList.remove('choosing-recurring-spawn');
+    addRecurringSpawnPoint(x, y);
     return true;
   }
 
@@ -559,6 +645,7 @@
     pointerOwner.clear();
     lastHeld = null;
     lastObjectNotice = false;
+    clearRecurringSpawnPoints();
     updateCount();
     updateGameStats();
     setHint('All forms cleared. Choose Forms+ to add new ones.');
@@ -877,6 +964,7 @@
   room.addEventListener('pointerdown', (e) => {
     if (beginFrameDraw(e)) return;
     if (chooseSpawnPoint(e)) return;
+    if (placeRecurringSpawnPoint(e)) return;
     if (!placementType) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -1010,6 +1098,12 @@
       openPicker('forms');
     }
   });
+  moreBtn.addEventListener('click', () => {
+    const isOpen = dockActions.classList.toggle('controls-open');
+    document.body.classList.toggle('more-open', isOpen);
+    moreBtn.setAttribute('aria-expanded', String(isOpen));
+    moreBtn.setAttribute('aria-label', isOpen ? 'Hide more controls' : 'Show more controls');
+  });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
   advancedBtn.addEventListener('click', () => openPicker('advanced'));
@@ -1017,6 +1111,9 @@
   frameBtn.addEventListener('click', () => {
     closePicker();
     placementType = null;
+    choosingSpawnPoint = false;
+    choosingRecurringSpawn = false;
+    room.classList.remove('choosing-spawn', 'choosing-recurring-spawn');
     room.classList.remove('placing');
     setFrameDrawing(!frameDrawing);
     if (frameDrawing) setHint('Drag across the room to draw a frame.');
@@ -1035,7 +1132,9 @@
       closePicker();
       placementType = null;
       choosingSpawnPoint = false;
+      choosingRecurringSpawn = false;
       room.classList.remove('choosing-spawn');
+      room.classList.remove('choosing-recurring-spawn');
       room.classList.remove('placing');
       setFrameDrawing(false);
     }
@@ -1049,6 +1148,12 @@
     spawnPoint.x = clamp(spawnPoint.x * W / oldW, 24, W - 24);
     spawnPoint.y = clamp(spawnPoint.y * H / oldH, 24, H - 24);
     if (spawnMarker) updateSpawnMarker();
+    for (const spawner of recurringSpawners) {
+      spawner.x = clamp(spawner.x * W / oldW, 24, W - 24);
+      spawner.y = clamp(spawner.y * H / oldH, 24, H - 24);
+      spawner.el.style.left = `${spawner.x}px`;
+      spawner.el.style.top = `${spawner.y}px`;
+    }
     for (const o of objects) {
       o.x = clamp(o.x * W / oldW, radius(o), W - radius(o));
       o.y = clamp(o.y * H / oldH, radius(o), H - radius(o));
@@ -1081,6 +1186,14 @@
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
     parallaxDepth += (parallaxTargetDepth - parallaxDepth) * parallaxEase;
     backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.08 + parallaxDepth})`;
+
+    for (const spawner of recurringSpawners) {
+      if (spawner.paused || t < spawner.nextSpawnAt) continue;
+      spawner.nextSpawnAt = t + RECURRING_SPAWN_INTERVAL;
+      if (objects.length < MAX_OBJECTS) {
+        spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
+      }
+    }
 
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];

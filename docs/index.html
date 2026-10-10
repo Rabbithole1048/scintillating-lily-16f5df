@@ -31,7 +31,13 @@
   <main id="room" aria-label="Room of floating glass objects"></main>
 
   <header class="top">
-    <div class="brand glass-ui"><i class="logo"></i>Floatroom</div>
+    <div class="brand glass-ui">
+      <span class="logo-orbit" aria-hidden="true">
+        <i class="logo-dot"></i><i class="logo-dot"></i><i class="logo-dot"></i>
+        <i class="logo-dot"></i><i class="logo-dot"></i><i class="logo-dot"></i>
+      </span>
+      Floatroom
+    </div>
     <div class="right">
       <button id="tilt" class="tilt glass-ui" type="button" aria-pressed="false" hidden>
         <span class="level" aria-hidden="true"><i></i></span><span class="label">tilt</span>
@@ -60,7 +66,7 @@
       <div id="picker-options" class="picker-options"></div>
       <p id="picker-hint" class="picker-hint">Drag a form into the room, or tap to add it.</p>
     </div>
-    <div class="dock-actions">
+    <div id="dock-actions" class="dock-actions">
       <button id="add" class="add glass-ui" type="button" aria-label="Choose forms" aria-expanded="false">
         <span class="orbit" aria-hidden="true">
           <span class="dot" style="--i:0"></span>
@@ -72,6 +78,10 @@
         </span>
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
         <span class="button-label">Forms+</span>
+      </button>
+      <button id="more" class="add glass-ui" type="button" aria-label="Show more controls" aria-expanded="false" aria-controls="elements light-effects draw-frame clear-forms clear-forces clear-frames advanced speed">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Zm6 12 .9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9L18 15Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        <span class="button-label">Magic</span>
       </button>
       <button id="elements" class="add glass-ui" type="button" aria-label="Choose a natural force">
         <span class="button-plus" aria-hidden="true">+</span>
