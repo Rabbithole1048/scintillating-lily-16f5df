@@ -1,8 +1,11 @@
 (() => {
   const room = document.getElementById('room');
+  const backdropWorld = document.querySelector('.backdrop-world');
   const addBtn = document.getElementById('add');
   const hint = document.getElementById('hint');
   const countEl = document.getElementById('count');
+  const mergesEl = document.getElementById('merges');
+  const bestEl = document.getElementById('best-form');
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
@@ -21,14 +24,24 @@
   let zTop = 1;
   let lastHeld = null;
   let hintTimer = 0;
+  let merges = 0;
+  let bestTier = 0;
+  let parallaxX = 0;
+  let parallaxY = 0;
+  let parallaxTargetX = 0;
+  let parallaxTargetY = 0;
+  let parallaxDepth = 0;
+  let parallaxTargetDepth = 0;
 
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
+  const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
+  const shapeName = (tier) => shapeAt(tier).toUpperCase();
 
-  function create(x, y, vx, vy, shape) {
-    shape = shape || SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360))) {
+    const shape = shapeAt(tier);
     const base = rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
     const w = base;
     const h = shape === 'capsule' ? base * 0.5 : base;
@@ -37,19 +50,19 @@
     el.className = 'obj';
     el.style.width = w + 'px';
     el.style.height = h + 'px';
-    el.style.setProperty('--h', Math.floor(rand(0, 360)));
+    el.style.setProperty('--h', hue);
     el.style.zIndex = zTop++;
     el.innerHTML = `<div class="wob"><div class="glass ${shape}">${shape === 'pearl' ? '<i class="core"></i>' : ''}</div></div>`;
     room.appendChild(el);
 
     const o = {
-      el, wob: el.firstChild, w, h, x, y, vx, vy,
+      el, wob: el.firstChild, w, h, x, y, vx, vy, tier, hue,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
       scale: 0.05, target: rand(0.85, 1.15),
       pointers: new Map(), held: false, growing: false, grew: false,
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
-      seed: Math.random() * 1000, lastBoop: 0,
+      seed: Math.random() * 1000, lastBoop: 0, mergeUntil: 0,
     };
 
     el.addEventListener('pointerdown', (e) => onDown(o, e));
@@ -79,6 +92,11 @@
 
   function updateCount() {
     countEl.textContent = objects.length;
+  }
+
+  function updateGameStats() {
+    mergesEl.textContent = merges;
+    bestEl.textContent = `${shapeName(bestTier)} ${bestTier + 1}`;
   }
 
   function pulse(o, cls) {
@@ -123,7 +141,7 @@
   }
 
   function addPointer(o, e) {
-    const p = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY };
+    const p = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, t: performance.now() };
     o.pointers.set(e.pointerId, p);
     pointerOwner.set(e.pointerId, o);
     return p;
@@ -170,8 +188,17 @@
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
     const p = o.pointers.get(e.pointerId);
+    const now = performance.now();
+    const moveDt = Math.max((now - p.t) / 1000, 0.008);
+    const moveX = (p.x - e.clientX) / moveDt;
+    const moveY = (p.y - e.clientY) / moveDt;
+    const dragSpeed = Math.hypot(moveX, moveY);
+    parallaxTargetX = clamp(moveX * 0.2, -100, 100);
+    parallaxTargetY = clamp(moveY * 0.2, -100, 100);
+    parallaxTargetDepth = Math.min(0.06, dragSpeed / 18000);
     p.x = e.clientX;
     p.y = e.clientY;
+    p.t = now;
     if (Math.hypot(p.x - p.sx, p.y - p.sy) > MOVE_SLOP) {
       o.moved = true;
       if (!o.growing) clearTimeout(o.timer);
@@ -204,6 +231,11 @@
     if (!o) return;
     pointerOwner.delete(e.pointerId);
     o.pointers.delete(e.pointerId);
+    if (o.pointers.size === 0) {
+      parallaxTargetX = 0;
+      parallaxTargetY = 0;
+      parallaxTargetDepth = 0;
+    }
 
     if (o.pointers.size === 1) {
       beginDrag(o, [...o.pointers.values()][0]);
@@ -215,6 +247,8 @@
     const wasGrowing = o.grew;
     stopGrow(o);
     const now = performance.now();
+    if (o.moved) o.mergeUntil = now + 1000;
+    if (o.moved && tryMerge(o)) return;
     const isTap = !o.moved && !o.pinched && !wasGrowing && now - o.downT < TAP_MS;
 
     if (isTap) {
@@ -270,6 +304,11 @@
   function frame(t) {
     const dt = Math.min(0.033, (t - lastT) / 1000);
     lastT = t;
+    const parallaxEase = Math.min(1, dt * (pointerOwner.size ? 12 : 2.8));
+    parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
+    parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
+    parallaxDepth += (parallaxTargetDepth - parallaxDepth) * parallaxEase;
+    backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.08 + parallaxDepth})`;
 
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
@@ -342,6 +381,11 @@
         const min = ra + rb;
         if (d >= min || d < 0.001) continue;
 
+        if (!a.held && !b.held && a.tier === b.tier && (a.mergeUntil > t || b.mergeUntil > t)) {
+          merge(a, b, t);
+          return;
+        }
+
         const nx = dx / d;
         const ny = dy / d;
         const overlap = min - d;
@@ -373,13 +417,56 @@
     }
   }
 
+  function tryMerge(o) {
+    if (!objects.includes(o) || o.pointers.size > 0) return false;
+
+    let closest = null;
+    let closestDistance = Infinity;
+    for (const other of objects) {
+      if (other === o || other.held || other.tier !== o.tier) continue;
+      const d = Math.hypot(other.x - o.x, other.y - o.y);
+      const mergeDistance = (radius(o) + radius(other)) * 1.04;
+      if (d < mergeDistance && d < closestDistance) {
+        closest = other;
+        closestDistance = d;
+      }
+    }
+    if (!closest) return false;
+
+    merge(o, closest, performance.now());
+    return true;
+  }
+
+  function merge(a, b, t) {
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    const vx = (a.vx + b.vx) / 2;
+    const vy = (a.vy + b.vy) / 2;
+    const nextTier = a.tier + 1;
+    const hue = (a.hue + 52) % 360;
+
+    remove(a);
+    remove(b);
+    const result = create(x, y, vx, vy, nextTier, hue);
+    result.target = clamp(Math.max(a.target, b.target), 0.9, 1.3);
+    result.lastBoop = t;
+
+    merges++;
+    if (nextTier > bestTier) bestTier = nextTier;
+    updateGameStats();
+    pulse(result, 'tap');
+    ripple(x, y, radius(result) * 2.8);
+    navigator.vibrate?.([10, 35, 16]);
+  }
+
   // ---------- first fill of the room ----------
   const startCount = W < 600 ? 7 : 11;
-  SHAPES.concat(SHAPES).slice(0, startCount).forEach((shape) => {
+  Array.from({ length: startCount }, () => 0).forEach((tier) => {
     const a = Math.random() * TAU;
     const s = rand(50, 110);
-    create(rand(90, W - 90), rand(110, H - 200), Math.cos(a) * s, Math.sin(a) * s, shape);
+    create(rand(90, W - 90), rand(110, H - 200), Math.cos(a) * s, Math.sin(a) * s, tier);
   });
 
+  updateGameStats();
   requestAnimationFrame(frame);
 })();

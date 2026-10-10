@@ -13,18 +13,15 @@
 </head>
 <body>
   <div class="backdrop" aria-hidden="true">
-    <div class="aura a1"></div>
-    <div class="aura a2"></div>
-    <div class="aura a3"></div>
-    <div class="aura a4"></div>
-    <div class="aura a5"></div>
-    <div class="grid"></div>
-    <div class="word" aria-label="LIVE PREVIEW OF SOMETHING SCHOENES">
-      <span>LIVE PREVIEW</span>
-      <span>OF SOMETHING</span>
-      <span class="quote">&quot;SCHOENES&quot;</span>
+    <div class="backdrop-world">
+      <div class="aura a1"></div>
+      <div class="aura a2"></div>
+      <div class="aura a3"></div>
+      <div class="aura a4"></div>
+      <div class="aura a5"></div>
+      <div class="grid"></div>
+      <div class="grain"></div>
     </div>
-    <div class="grain"></div>
   </div>
 
   <main id="room" aria-label="Room of floating glass objects"></main>
@@ -39,21 +36,28 @@
     </div>
   </header>
 
+  <div class="game-stats glass-ui" aria-live="polite" aria-atomic="true">
+    <span>Best <b id="best-form">ORB 1</b></span>
+    <i aria-hidden="true"></i>
+    <span>Merges <b id="merges">0</b></span>
+  </div>
+
   <div id="hint" class="hint" aria-live="polite">
-    <span class="chip glass-ui">✋ drag &amp; fling</span>
+    <span class="chip glass-ui">✋ drag matching forms together</span>
     <span class="chip glass-ui">🤏 pinch to resize</span>
     <span class="chip glass-ui">⏺ hold to grow</span>
     <span class="chip glass-ui">✌︎ double-tap to shrink</span>
+    <span class="chip glass-ui">＋ add forms to keep merging</span>
     <span id="tilt-chip" class="chip glass-ui" hidden>📱 tilt &amp; shake — bubbles float the other way</span>
   </div>
 
   <div class="dock">
-    <div class="orbit" aria-hidden="true">
-      <span class="dot" style="--i:0"></span>
-      <span class="dot" style="--i:1"></span>
-      <span class="dot" style="--i:2"></span>
-    </div>
     <button id="add" class="add glass-ui" type="button" aria-label="Bring another object into the room">
+      <span class="orbit" aria-hidden="true">
+        <span class="dot" style="--i:0"></span>
+        <span class="dot" style="--i:1"></span>
+        <span class="dot" style="--i:2"></span>
+      </span>
       <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
     </button>
   </div>
