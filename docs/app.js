@@ -47,6 +47,7 @@
   const objects = [];
   const fields = [];
   const pointerOwner = new Map(); // pointerId -> object
+  const fieldPointerOwner = new Map();
   let W = innerWidth;
   let H = innerHeight;
   let zTop = 1;
@@ -68,7 +69,24 @@
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
 
-  function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360))) {
+  function seedDistantLights() {
+    const layer = document.querySelector('.distant-lights');
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < 52; i++) {
+      const light = document.createElement('i');
+      light.className = 'distant-light';
+      light.style.left = `${rand(2, 98)}%`;
+      light.style.top = `${rand(2, 98)}%`;
+      light.style.setProperty('--light-size', `${rand(1, 2.5)}px`);
+      light.style.setProperty('--light-alpha', rand(0.22, 0.8).toFixed(2));
+      light.style.setProperty('--twinkle-time', `${rand(3, 9).toFixed(1)}s`);
+      light.style.setProperty('--twinkle-delay', `${rand(-9, 0).toFixed(1)}s`);
+      fragment.appendChild(light);
+    }
+    layer.appendChild(fragment);
+  }
+
+  function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360)), initialScale = 0.05) {
     const formIndex = ((tier % SHAPES.length) + SHAPES.length) % SHAPES.length;
     const shape = shapeAt(formIndex);
     const base = rand(80, 140) * (Math.min(W, H) < 600 ? 0.78 : 1);
@@ -87,7 +105,7 @@
     const o = {
       el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
-      scale: 0.05, target: rand(0.85, 1.15),
+      scale: initialScale, target: rand(0.85, 1.15),
       pointers: new Map(), held: false, growing: false, grew: false,
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
@@ -96,6 +114,7 @@
       density: 0.75 + (formIndex % 5) * 0.13,
     };
 
+    el.style.transform = `translate3d(${x - w / 2}px, ${y - h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
     el.addEventListener('pointerdown', (e) => onDown(o, e));
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -226,12 +245,82 @@
     el.appendChild(icon);
     room.appendChild(el);
 
-    fields.push({
-      type, x, y, radius: type === 'laser' ? 210 : 190,
-      angle: rand(-Math.PI, Math.PI), phase: rand(0, TAU), el,
+    const field = {
+      type, name: definition.name, x, y, radius: type === 'laser' ? 210 : 190,
+      angle: rand(-Math.PI, Math.PI), phase: rand(0, TAU), el, pinned: false,
+    };
+    fields.push(field);
+    el.setAttribute('role', 'button');
+    el.tabIndex = 0;
+    el.addEventListener('pointerdown', (e) => onFieldDown(field, e));
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      toggleFieldPinned(field);
     });
     updateFieldPositions();
     ripple(x, y, 90);
+  }
+
+  function updateFieldElement(field) {
+    field.el.style.left = `${field.x}px`;
+    field.el.style.top = `${field.y}px`;
+    field.el.classList.toggle('field-pinned', field.pinned);
+    field.el.setAttribute('aria-label', `${field.name} force, ${field.pinned ? 'fixed, select to release' : 'movable, select to fix'}`);
+    field.el.setAttribute('aria-pressed', String(field.pinned));
+    field.el.title = `${field.name} — ${field.pinned ? 'fixed (click to release)' : 'movable (drag to move, click to fix)'}`;
+    if (field.type === 'laser') field.el.style.setProperty('--beam-angle', `${field.angle}rad`);
+  }
+
+  function toggleFieldPinned(field) {
+    field.pinned = !field.pinned;
+    updateFieldElement(field);
+    setHint(`${field.name} ${field.pinned ? 'fixed. Select it again to release and move.' : 'released. Drag to move it, or select to fix it again.'}`);
+  }
+
+  function onFieldDown(field, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (field.pinned) {
+      toggleFieldPinned(field);
+      return;
+    }
+    fieldPointerOwner.set(e.pointerId, {
+      field, startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false,
+    });
+    field.el.classList.add('field-dragging');
+  }
+
+  function onFieldMove(e) {
+    const pointer = fieldPointerOwner.get(e.pointerId);
+    if (!pointer) return false;
+    const { field } = pointer;
+    const dx = e.clientX - pointer.lastX;
+    const dy = e.clientY - pointer.lastY;
+    if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > MOVE_SLOP) pointer.moved = true;
+    if (pointer.moved) {
+      field.x = clamp(field.x + dx, 0, W);
+      field.y = clamp(field.y + dy, 0, H);
+      if (field.type === 'air' || field.type === 'laser') field.angle = Math.atan2(dy, dx);
+      updateFieldElement(field);
+    }
+    pointer.lastX = e.clientX;
+    pointer.lastY = e.clientY;
+    return true;
+  }
+
+  function onFieldUp(e) {
+    const pointer = fieldPointerOwner.get(e.pointerId);
+    if (!pointer) return false;
+    fieldPointerOwner.delete(e.pointerId);
+    const { field } = pointer;
+    field.el.classList.remove('field-dragging');
+    if (!pointer.moved) {
+      toggleFieldPinned(field);
+    } else {
+      setHint(`${field.name} moved. Select it to fix it in place.`);
+    }
+    return true;
   }
 
   function updateFieldPositions() {
@@ -396,6 +485,7 @@
   });
 
   addEventListener('pointermove', (e) => {
+    if (onFieldMove(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
     const p = o.pointers.get(e.pointerId);
@@ -438,6 +528,7 @@
   });
 
   function onUp(e) {
+    if (onFieldUp(e)) return;
     const o = pointerOwner.get(e.pointerId);
     if (!o) return;
     pointerOwner.delete(e.pointerId);
@@ -508,8 +599,19 @@
   });
 
   addEventListener('resize', () => {
+    const oldW = W;
+    const oldH = H;
     W = innerWidth;
     H = innerHeight;
+    for (const o of objects) {
+      o.x = clamp(o.x * W / oldW, radius(o), W - radius(o));
+      o.y = clamp(o.y * H / oldH, radius(o), H - radius(o));
+    }
+    for (const field of fields) {
+      field.x = clamp(field.x * W / oldW, 0, W);
+      field.y = clamp(field.y * H / oldH, 0, H);
+      updateFieldElement(field);
+    }
   });
 
   // ---------- simulation ----------
@@ -662,8 +764,8 @@
     const hue = (a.hue + b.hue) / 2;
 
     remove(a, true);
-    remove(b, true);
     const result = create(x, y, vx, vy, 0, hue);
+    remove(b, true);
     result.target = 0.9;
     result.lastBoop = t;
 
@@ -676,12 +778,26 @@
 
   // ---------- first fill of the room ----------
   const startCount = W < 600 ? 7 : 11;
-  Array.from({ length: startCount }, (_, index) => index % SHAPES.length).forEach((tier) => {
+  const columns = W < 600 ? 3 : Math.max(3, Math.floor(Math.sqrt(startCount * W / H)));
+  const rows = Math.ceil(startCount / columns);
+  const marginX = Math.min(130, W * 0.12);
+  const top = Math.min(145, H * 0.18);
+  const bottom = Math.max(top + 100, H - Math.min(185, H * 0.2));
+  const cellWidth = (W - marginX * 2) / columns;
+  const cellHeight = (bottom - top) / rows;
+  Array.from({ length: startCount }, (_, index) => index % SHAPES.length).forEach((tier, index) => {
     const a = Math.random() * TAU;
     const s = rand(50, 110);
-    create(rand(90, W - 90), rand(110, H - 200), Math.cos(a) * s, Math.sin(a) * s, tier);
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const jitterX = Math.min(22, cellWidth * 0.12);
+    const jitterY = Math.min(22, cellHeight * 0.12);
+    const x = marginX + (column + 0.5) * cellWidth + rand(-jitterX, jitterX);
+    const y = top + (row + 0.5) * cellHeight + rand(-jitterY, jitterY);
+    create(x, y, Math.cos(a) * s, Math.sin(a) * s, tier, undefined, 0.9);
   });
 
+  seedDistantLights();
   updateGameStats();
   requestAnimationFrame(frame);
 })();

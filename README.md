@@ -4,8 +4,9 @@ Floatroom is a full-screen physics playground for 16 floating glass forms and se
 
 - **Drag forms together** to merge any pair into a basic orb.
 - Choose forms from the **Forms** button.
-- Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Sand and Fire share a radial blast; Sunlight and Magnetlight share an orbiting attraction. Sand/Fire and Laser can remove forms, but one protected form always remains.
+- Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Drag a force to move it; select it to pin or release it. Sand and Fire share a radial blast; Sunlight and Magnetlight share an orbiting attraction. Sand/Fire and Laser can remove forms, but one protected form always remains.
 - The displayed zero-object goal is an intentionally locked challenge.
+- Desktop and mobile layouts are supported; small distant lights add depth to the backdrop.
 
 ## Tech
 
