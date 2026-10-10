@@ -14,4 +14,5 @@ Floatroom is a single-page static toy: liquid-glass objects float around a room 
 - Gestures are tracked per pointer in `pointerOwner` (pointerId → object), and move/up events are handled on `window`. A second finger on empty space joins the pinch of the object that's currently held, which makes small objects easy to pinch.
 - Long-press growth only starts if the pointer stays within `MOVE_SLOP` px for `LONG_PRESS_MS`. A tap is anything shorter than `TAP_MS` with no movement, pinch or growth, and two taps within `DOUBLE_TAP_MS` shrink the object.
 - Collisions use simple circle impulses weighted by area. Held objects count as infinite mass, so you can shove other objects around.
-- The room holds at most `MAX_OBJECTS`. When it's full, adding a new object fades out the oldest one, to keep the backdrop-filter cost bounded.
+- The room holds at most `MAX_OBJECTS` (2,000). When it's full, adding a new object immediately removes the oldest one, so spawning can continue without growing DOM or physics work.
+- Dense rooms progressively reduce glass effects; collision checks run every other frame above 800 objects to keep animation responsive.

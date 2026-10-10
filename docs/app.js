@@ -2,9 +2,11 @@
   const room = document.getElementById('room');
   const mapWorld = document.getElementById('map-world');
   const backdropWorld = document.querySelector('.backdrop-world');
+  const backdropGrid = document.querySelector('.grid');
   const formBtn = document.getElementById('add');
   const moreBtn = document.getElementById('more');
   const dockActions = document.getElementById('dock-actions');
+  const magicMenu = document.getElementById('magic-menu');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
   const phenomenaBtn = document.getElementById('phenomena-effects');
@@ -33,12 +35,13 @@
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
-  const MAX_OBJECTS = 1000;
+  const MAX_OBJECTS = 2000;
+  const HIGH_DENSITY_THRESHOLD = 800;
   const MAX_COLLISION_PAIRS_PER_FRAME = 16000;
   const WORLD_SCALE = 8;
+  const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
   const MAX_SPLIT_CHILDREN = 4;
-  const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 4;
   const MAX_FIELDS = 14;
   const MAX_RECURRING_SPAWNERS = 12;
   const RECURRING_SPAWN_INTERVAL = 1800;
@@ -86,10 +89,11 @@
   const cameraPointers = new Map();
   let VIEW_W = innerWidth;
   let VIEW_H = innerHeight;
-  let W = VIEW_W * WORLD_SCALE;
-  let H = VIEW_H * WORLD_SCALE;
+  let W = Math.ceil(VIEW_W * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
+  let H = Math.ceil(VIEW_H * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
   let zTop = 1;
   let collisionCursor = 0;
+  let frameCount = 0;
   let lastHeld = null;
   let hintTimer = 0;
   let splits = 0;
@@ -108,6 +112,8 @@
   let cameraZoom = 1;
   let cameraX = VIEW_W / 2 - W / 2;
   let cameraY = VIEW_H / 2 - H / 2;
+  let worldOffsetX = 0;
+  let worldOffsetY = 0;
   let cameraPinch = null;
   let lastObjectNotice = false;
   let parallaxX = 0;
@@ -131,37 +137,72 @@
 
   function worldPoint(clientX, clientY) {
     return {
-      x: clamp((clientX - cameraX) / cameraZoom, 0, W),
-      y: clamp((clientY - cameraY) / cameraZoom, 0, H),
+      x: (clientX - cameraX) / cameraZoom - worldOffsetX,
+      y: (clientY - cameraY) / cameraZoom - worldOffsetY,
     };
   }
 
-  function clampCamera() {
-    const scaledWidth = W * cameraZoom;
-    const scaledHeight = H * cameraZoom;
-    cameraX = clamp(cameraX, VIEW_W - scaledWidth, 0);
-    cameraY = clamp(cameraY, VIEW_H - scaledHeight, 0);
+  function shiftWorld(dx, dy) {
+    if (!dx && !dy) return;
+    worldOffsetX += dx;
+    worldOffsetY += dy;
+    room.style.transform = `translate3d(${worldOffsetX}px, ${worldOffsetY}px, 0)`;
+  }
+
+  function rebaseCamera() {
+    const minX = VIEW_W - W * cameraZoom;
+    const minY = VIEW_H - H * cameraZoom;
+    const boundedX = clamp(cameraX, minX, 0);
+    const boundedY = clamp(cameraY, minY, 0);
+    if (boundedX !== cameraX || boundedY !== cameraY) {
+      shiftWorld((cameraX - boundedX) / cameraZoom, (cameraY - boundedY) / cameraZoom);
+      cameraX = boundedX;
+      cameraY = boundedY;
+    }
   }
 
   function updateCamera() {
-    clampCamera();
+    rebaseCamera();
     mapWorld.style.width = `${W}px`;
     mapWorld.style.height = `${H}px`;
     room.style.width = `${W}px`;
     room.style.height = `${H}px`;
+    room.style.transform = `translate3d(${worldOffsetX}px, ${worldOffsetY}px, 0)`;
     mapWorld.style.transform = `translate3d(${cameraX}px, ${cameraY}px, 0) scale(${cameraZoom})`;
-    parallaxTargetX = clamp(-cameraX * 0.035, -22, 22);
-    parallaxTargetY = clamp(-cameraY * 0.035, -22, 22);
+    const gridPeriod = WORLD_TILE_SIZE * cameraZoom;
+    backdropGrid.style.backgroundSize = `${gridPeriod}px ${gridPeriod}px, ${gridPeriod}px ${gridPeriod}px`;
+    backdropGrid.style.backgroundPosition =
+      `0 ${wrap(cameraY + worldOffsetY * cameraZoom, gridPeriod)}px, ${wrap(cameraX + worldOffsetX * cameraZoom, gridPeriod)}px 0`;
     parallaxTargetDepth = clamp((cameraZoom - 1) * 0.045, -0.025, 0.07);
+  }
+
+  function updatePanParallax(dx, dy) {
+    parallaxTargetX = clamp(parallaxTargetX - dx * 0.035, -22, 22);
+    parallaxTargetY = clamp(parallaxTargetY - dy * 0.035, -22, 22);
   }
 
   function visibleWorldBounds() {
     return {
-      left: clamp(-cameraX / cameraZoom, 0, W),
-      right: clamp((VIEW_W - cameraX) / cameraZoom, 0, W),
-      top: clamp(-cameraY / cameraZoom, 0, H),
-      bottom: clamp((VIEW_H - cameraY) / cameraZoom, 0, H),
+      left: -cameraX / cameraZoom - worldOffsetX,
+      right: (VIEW_W - cameraX) / cameraZoom - worldOffsetX,
+      top: -cameraY / cameraZoom - worldOffsetY,
+      bottom: (VIEW_H - cameraY) / cameraZoom - worldOffsetY,
     };
+  }
+
+  function wrapVisiblePoint(point, bounds, margin) {
+    const width = bounds.right - bounds.left;
+    const height = bounds.bottom - bounds.top;
+    let moved = false;
+    if (point.x < bounds.left - margin || point.x > bounds.right + margin) {
+      point.x = bounds.left - margin + wrap(point.x - bounds.left + margin, width + 2 * margin);
+      moved = true;
+    }
+    if (point.y < bounds.top - margin || point.y > bounds.bottom + margin) {
+      point.y = bounds.top - margin + wrap(point.y - bounds.top + margin, height + 2 * margin);
+      moved = true;
+    }
+    return moved;
   }
 
   function beginCameraPinch() {
@@ -171,8 +212,8 @@
     cameraPinch = {
       distance: Math.hypot(a.x - b.x, a.y - b.y) || 1,
       zoom: cameraZoom,
-      worldX: (midX - cameraX) / cameraZoom,
-      worldY: (midY - cameraY) / cameraZoom,
+      worldX: (midX - cameraX) / cameraZoom - worldOffsetX,
+      worldY: (midY - cameraY) / cameraZoom - worldOffsetY,
     };
   }
 
@@ -192,20 +233,26 @@
   function onCameraMove(e) {
     const pointer = cameraPointers.get(e.pointerId);
     if (!pointer) return false;
+    const pointerDx = e.clientX - pointer.x;
+    const pointerDy = e.clientY - pointer.y;
     pointer.x = e.clientX;
     pointer.y = e.clientY;
     if (cameraPointers.size >= 2 && cameraPinch) {
+      updatePanParallax(pointerDx / 2, pointerDy / 2);
       const [a, b] = [...cameraPointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
       cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, 0.45, 2.5);
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
-      cameraX = midX - cameraPinch.worldX * cameraZoom;
-      cameraY = midY - cameraPinch.worldY * cameraZoom;
+      cameraX = midX - (cameraPinch.worldX + worldOffsetX) * cameraZoom;
+      cameraY = midY - (cameraPinch.worldY + worldOffsetY) * cameraZoom;
       updateCamera();
     } else {
-      cameraX += e.clientX - pointer.lastX;
-      cameraY += e.clientY - pointer.lastY;
+      const dx = e.clientX - pointer.lastX;
+      const dy = e.clientY - pointer.lastY;
+      cameraX += dx;
+      cameraY += dy;
+      updatePanParallax(dx, dy);
       pointer.lastX = e.clientX;
       pointer.lastY = e.clientY;
       updateCamera();
@@ -231,8 +278,8 @@
   function zoomAt(factor) {
     const anchor = worldPoint(VIEW_W / 2, VIEW_H / 2);
     cameraZoom = clamp(cameraZoom * factor, 0.45, 2.5);
-    cameraX = VIEW_W / 2 - anchor.x * cameraZoom;
-    cameraY = VIEW_H / 2 - anchor.y * cameraZoom;
+    cameraX = VIEW_W / 2 - (anchor.x + worldOffsetX) * cameraZoom;
+    cameraY = VIEW_H / 2 - (anchor.y + worldOffsetY) * cameraZoom;
     updateCamera();
   }
 
@@ -261,7 +308,10 @@
   }
 
   function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360)), initialScale = 0.05, baseSize = null) {
-    if (objects.length >= MAX_OBJECTS) return null;
+    if (objects.length >= MAX_OBJECTS) {
+      const oldest = objects.find((object) => !object.held) ?? objects[0];
+      if (oldest) remove(oldest, true, true);
+    }
     const formIndex = ((tier % SHAPES.length) + SHAPES.length) % SHAPES.length;
     const shape = shapeAt(formIndex);
     const base = baseSize ?? rand(80, 140) * (Math.min(VIEW_W, VIEW_H) < 600 ? 0.78 : 1);
@@ -292,6 +342,7 @@
       density: 0.75 + (formIndex % 5) * 0.13,
       playerNudgedUntil: 0,
       frame: null,
+      collisionIndex: 0, collisionRadius: 0, collisionCellX: 0, collisionCellY: 0,
     };
 
     el.style.transform = `translate3d(${x - w / 2}px, ${y - h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
@@ -320,6 +371,12 @@
     const i = objects.indexOf(o);
     if (i === -1 || (!allowEmpty && objects.length <= 1)) return false;
     objects.splice(i, 1);
+    clearTimeout(o.timer);
+    for (const pointerId of o.pointers.keys()) pointerOwner.delete(pointerId);
+    o.pointers.clear();
+    gameStone?.penalized.delete(o);
+    o.held = false;
+    if (lastHeld === o) lastHeld = null;
     if (immediate) {
       o.el.remove();
     } else {
@@ -335,6 +392,10 @@
     countEl.textContent = objects.length;
     room.classList.toggle('dense', objects.length > 120);
     document.body.classList.toggle('dense', objects.length > 120);
+    room.classList.toggle('crowded', objects.length > 400);
+    document.body.classList.toggle('crowded', objects.length > 400);
+    room.classList.toggle('overloaded', objects.length > HIGH_DENSITY_THRESHOLD);
+    document.body.classList.toggle('overloaded', objects.length > HIGH_DENSITY_THRESHOLD);
     if (objects.length > 1) lastObjectNotice = false;
   }
 
@@ -355,10 +416,10 @@
   }
 
   function randomVisiblePoint(margin = Math.min(190, VIEW_H * 0.2)) {
-    const left = clamp((margin - cameraX) / cameraZoom, 0, W);
-    const right = clamp((VIEW_W - margin - cameraX) / cameraZoom, left, W);
-    const top = clamp((margin - cameraY) / cameraZoom, 0, H);
-    const bottom = clamp((VIEW_H - margin - cameraY) / cameraZoom, top, H);
+    const left = (margin - cameraX) / cameraZoom - worldOffsetX;
+    const right = (VIEW_W - margin - cameraX) / cameraZoom - worldOffsetX;
+    const top = (margin - cameraY) / cameraZoom - worldOffsetY;
+    const bottom = (VIEW_H - margin - cameraY) / cameraZoom - worldOffsetY;
     return { x: rand(left, Math.max(left, right)), y: rand(top, Math.max(top, bottom)) };
   }
 
@@ -531,10 +592,6 @@
             formClickSuppression.delete(option);
             return;
           }
-          if (objects.length >= MAX_OBJECTS) {
-            setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
-            return;
-          }
           const index = Number(choice.id);
           spawnForm(index, spawnPoint.x, spawnPoint.y);
           return;
@@ -570,7 +627,7 @@
   }
 
   function beginFormDrag(option, index, e) {
-    if (e.button !== 0 || objects.length >= MAX_OBJECTS) return;
+    if (e.button !== 0) return;
     clearTimeout(formClickSuppression.get(option));
     formClickSuppression.delete(option);
     formDrag = {
@@ -627,10 +684,6 @@
   }
 
   function spawnForm(index, x, y, dropped = false) {
-    if (objects.length >= MAX_OBJECTS) {
-      setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
-      return null;
-    }
     const hue = colorMode === 'random' ? Math.floor(rand(0, 360)) : index * 22;
     const o = create(x, y, rand(-90, 90), rand(-90, 90), index, hue);
     if (!o) return null;
@@ -815,7 +868,15 @@
     for (const field of fields) field.el.remove();
     fields.length = 0;
     fieldPointerOwner.clear();
+    clearObjectGlows();
     setHint('All forces cleared.');
+  }
+
+  function clearObjectGlows() {
+    for (const object of objects) {
+      object.el.classList.remove('force-glow');
+      object.el.style.removeProperty('--glow-strength');
+    }
   }
 
   function clearFrames() {
@@ -834,6 +895,7 @@
     for (const [pointerId, pointer] of fieldPointerOwner) {
       if (pointer.field === field) fieldPointerOwner.delete(pointerId);
     }
+    if (fields.length === 0) clearObjectGlows();
     setHint(`${field.name} removed.`);
   }
 
@@ -1116,6 +1178,7 @@
   }
 
   function applyFields(o, dt, t) {
+    if (fields.length === 0) return true;
     let glow = 0;
     for (const field of fields) {
       const dx = o.x - field.x;
@@ -1289,8 +1352,8 @@
       pointer.field.el.classList.remove('field-dragging');
       fieldPointerOwner.delete(pointerId);
     }
-    const screenX = point.x * cameraZoom + cameraX;
-    const screenY = point.y * cameraZoom + cameraY;
+    const screenX = (point.x + worldOffsetX) * cameraZoom + cameraX;
+    const screenY = (point.y + worldOffsetY) * cameraZoom + cameraY;
     cameraPointers.set(pointerId, { x: screenX, y: screenY, lastX: screenX, lastY: screenY });
     room.setPointerCapture(pointerId);
     onCameraDown(e);
@@ -1467,6 +1530,7 @@
   moreBtn.addEventListener('click', () => {
     const isOpen = dockActions.classList.toggle('controls-open');
     document.body.classList.toggle('more-open', isOpen);
+    magicMenu.hidden = !isOpen;
     moreBtn.setAttribute('aria-expanded', String(isOpen));
     moreBtn.setAttribute('aria-label', isOpen ? 'Hide more controls' : 'Show more controls');
   });
@@ -1521,33 +1585,34 @@
   addEventListener('resize', () => {
     const oldW = W;
     const oldH = H;
-    const centerWorldX = (VIEW_W / 2 - cameraX) / cameraZoom;
-    const centerWorldY = (VIEW_H / 2 - cameraY) / cameraZoom;
+    const centerWorldX = (VIEW_W / 2 - cameraX) / cameraZoom - worldOffsetX;
+    const centerWorldY = (VIEW_H / 2 - cameraY) / cameraZoom - worldOffsetY;
     VIEW_W = innerWidth;
     VIEW_H = innerHeight;
-    W = VIEW_W * WORLD_SCALE;
-    H = VIEW_H * WORLD_SCALE;
+    W = Math.ceil(VIEW_W * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
+    H = Math.ceil(VIEW_H * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
     const worldScaleX = W / oldW;
     const worldScaleY = H / oldH;
-    cameraX = VIEW_W / 2 - centerWorldX * worldScaleX * cameraZoom;
-    cameraY = VIEW_H / 2 - centerWorldY * worldScaleY * cameraZoom;
-    updateCamera();
-    spawnPoint.x = clamp(spawnPoint.x * worldScaleX, 24, W - 24);
-    spawnPoint.y = clamp(spawnPoint.y * worldScaleY, 24, H - 24);
+    worldOffsetX *= worldScaleX;
+    worldOffsetY *= worldScaleY;
+    cameraX = VIEW_W / 2 - (centerWorldX * worldScaleX + worldOffsetX) * cameraZoom;
+    cameraY = VIEW_H / 2 - (centerWorldY * worldScaleY + worldOffsetY) * cameraZoom;
+    spawnPoint.x *= worldScaleX;
+    spawnPoint.y *= worldScaleY;
     if (spawnMarker) updateSpawnMarker();
     for (const spawner of recurringSpawners) {
-      spawner.x = clamp(spawner.x * worldScaleX, 24, W - 24);
-      spawner.y = clamp(spawner.y * worldScaleY, 24, H - 24);
+      spawner.x *= worldScaleX;
+      spawner.y *= worldScaleY;
       spawner.el.style.left = `${spawner.x}px`;
       spawner.el.style.top = `${spawner.y}px`;
     }
     for (const o of objects) {
-      o.x = clamp(o.x * worldScaleX, radius(o), W - radius(o));
-      o.y = clamp(o.y * worldScaleY, radius(o), H - radius(o));
+      o.x *= worldScaleX;
+      o.y *= worldScaleY;
     }
     for (const field of fields) {
-      field.x = clamp(field.x * worldScaleX, 0, W);
-      field.y = clamp(field.y * worldScaleY, 0, H);
+      field.x *= worldScaleX;
+      field.y *= worldScaleY;
       updateFieldElement(field);
     }
     for (const frame of frames) {
@@ -1566,12 +1631,18 @@
       gameStone.el.style.left = `${gameStone.x}px`;
       gameStone.el.style.top = `${gameStone.y}px`;
     }
+    if (frameDraw) {
+      frameDraw.startX *= worldScaleX;
+      frameDraw.startY *= worldScaleY;
+    }
+    updateCamera();
   });
 
   // ---------- simulation ----------
   let lastT = performance.now();
 
   function frame(t) {
+    frameCount++;
     const dt = Math.min(0.033, (t - lastT) / 1000) * simulationSpeed;
     lastT = t;
     const parallaxEase = Math.min(1, dt * (cameraPointers.size ? 8 : 2.8));
@@ -1580,13 +1651,48 @@
     parallaxDepth += (parallaxTargetDepth - parallaxDepth) * parallaxEase;
     backdropWorld.style.transform = `translate3d(${parallaxX}px, ${parallaxY}px, 0) scale(${1.12 + parallaxDepth})`;
     const visibleBounds = visibleWorldBounds();
+    const wrapGap = 12 / cameraZoom;
+    const visibleWidth = visibleBounds.right - visibleBounds.left;
+    const visibleHeight = visibleBounds.bottom - visibleBounds.top;
+
+    if (wrapVisiblePoint(spawnPoint, visibleBounds, 24) && spawnMarker) updateSpawnMarker();
+    for (const field of fields) {
+      if (field.pointers.size === 0 && wrapVisiblePoint(field, visibleBounds, field.radius)) {
+        updateFieldElement(field);
+      }
+    }
+    for (const spawner of recurringSpawners) {
+      if (wrapVisiblePoint(spawner, visibleBounds, 24)) {
+        spawner.el.style.left = `${spawner.x}px`;
+        spawner.el.style.top = `${spawner.y}px`;
+      }
+    }
+    for (const frame of frames) {
+      let moved = false;
+      if (frame.x + frame.width < visibleBounds.left || frame.x > visibleBounds.right) {
+        frame.x = visibleBounds.left - frame.width
+          + wrap(frame.x - visibleBounds.left + frame.width, visibleBounds.right - visibleBounds.left + frame.width);
+        moved = true;
+      }
+      if (frame.y + frame.height < visibleBounds.top || frame.y > visibleBounds.bottom) {
+        frame.y = visibleBounds.top - frame.height
+          + wrap(frame.y - visibleBounds.top + frame.height, visibleBounds.bottom - visibleBounds.top + frame.height);
+        moved = true;
+      }
+      if (moved) {
+        frame.el.style.left = `${frame.x}px`;
+        frame.el.style.top = `${frame.y}px`;
+      }
+    }
+    if (gameStone && wrapVisiblePoint(gameStone, visibleBounds, gameStone.radius)) {
+      gameStone.el.style.left = `${gameStone.x}px`;
+      gameStone.el.style.top = `${gameStone.y}px`;
+    }
 
     for (const spawner of recurringSpawners) {
       if (spawner.paused || t < spawner.nextSpawnAt) continue;
       spawner.nextSpawnAt = t + RECURRING_SPAWN_INTERVAL;
-      if (objects.length < MAX_OBJECTS) {
-        spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
-      }
+      spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
     }
 
     for (let i = 0; i < objects.length; i++) {
@@ -1626,9 +1732,6 @@
       if (o.frame && frames.includes(o.frame)) {
         keepInsideFrame(o, r);
       } else {
-        const wrapGap = 12 / cameraZoom;
-        const visibleWidth = visibleBounds.right - visibleBounds.left;
-        const visibleHeight = visibleBounds.bottom - visibleBounds.top;
         if (visibleWidth > 2 * (r + wrapGap)) {
           if (o.x < visibleBounds.left - r - wrapGap) o.x += visibleWidth + 2 * (r + wrapGap);
           else if (o.x > visibleBounds.right + r + wrapGap) o.x -= visibleWidth + 2 * (r + wrapGap);
@@ -1650,7 +1753,7 @@
       o.rot += o.vr * dt;
     }
 
-    collide(t);
+    if (objects.length <= HIGH_DENSITY_THRESHOLD || frameCount % 2 === 0) collide(t);
     updateGameCollisions(t);
 
     for (let i = 0; i < objects.length; i++) {
@@ -1663,33 +1766,32 @@
   function collide(t) {
     const cellSize = 256;
     const buckets = new Map();
-    const entries = [];
     let maxRadius = 0;
 
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
-      const cellX = Math.floor(o.x / cellSize);
-      const cellY = Math.floor(o.y / cellSize);
-      const entry = { o, i, radius: radius(o) * 0.92, cellX, cellY };
-      const key = `${cellX}:${cellY}`;
+      o.collisionIndex = i;
+      o.collisionRadius = radius(o) * 0.92;
+      o.collisionCellX = Math.floor(o.x / cellSize);
+      o.collisionCellY = Math.floor(o.y / cellSize);
+      const key = `${o.collisionCellX}:${o.collisionCellY}`;
       if (!buckets.has(key)) buckets.set(key, []);
-      buckets.get(key).push(entry);
-      entries.push(entry);
-      maxRadius = Math.max(maxRadius, entry.radius);
+      buckets.get(key).push(o);
+      maxRadius = Math.max(maxRadius, o.collisionRadius);
     }
 
-    if (!entries.length) return;
-    const startIndex = collisionCursor % entries.length;
-    collisionCursor = (startIndex + Math.max(1, Math.floor(entries.length / 8))) % entries.length;
+    if (!objects.length) return;
+    const startIndex = collisionCursor % objects.length;
+    collisionCursor = (startIndex + Math.max(1, Math.floor(objects.length / 8))) % objects.length;
     const pairBudget = Math.min(
       MAX_COLLISION_PAIRS_PER_FRAME,
-      Math.max(4000, Math.floor(MAX_COLLISION_PAIRS_PER_FRAME * 500 / entries.length)),
+      Math.max(4000, Math.floor(MAX_COLLISION_PAIRS_PER_FRAME * 500 / objects.length)),
     );
     let checkedPairs = 0;
 
-    collisionLoop: for (let offset = 0; offset < entries.length; offset++) {
-      const current = entries[(startIndex + offset) % entries.length];
-      const { o: a, i, radius: ra, cellX, cellY } = current;
+    collisionLoop: for (let offset = 0; offset < objects.length; offset++) {
+      const a = objects[(startIndex + offset) % objects.length];
+      const { collisionIndex: i, collisionRadius: ra, collisionCellX: cellX, collisionCellY: cellY } = a;
       const range = Math.ceil((ra + maxRadius) / cellSize);
       const ia = a.held ? 0 : 1 / (ra * ra * a.density);
 
@@ -1698,10 +1800,10 @@
           const nearby = buckets.get(`${x}:${y}`);
           if (!nearby) continue;
           for (const candidate of nearby) {
-            if (candidate.i <= i) continue;
+            if (candidate.collisionIndex <= i) continue;
             if (checkedPairs++ >= pairBudget) break collisionLoop;
-            const b = candidate.o;
-            const rb = candidate.radius;
+            const b = candidate;
+            const rb = candidate.collisionRadius;
             const ib = b.held ? 0 : 1 / (rb * rb * b.density);
             if (ia + ib === 0) continue;
 
@@ -1723,8 +1825,7 @@
             }
 
             if (!a.held && !b.held && a.tier === b.tier
-              && a.splitAfter <= t && b.splitAfter <= t
-              && objects.length + SPLIT_OBJECT_DELTA <= MAX_OBJECTS) {
+              && a.splitAfter <= t && b.splitAfter <= t) {
               split(a, b, t);
               return;
             }
@@ -1760,7 +1861,6 @@
 
   function trySplit(o) {
     if (!objects.includes(o) || o.pointers.size > 0) return false;
-    if (objects.length + SPLIT_OBJECT_DELTA > MAX_OBJECTS) return false;
 
     let closest = null;
     let closestDistance = Infinity;
@@ -1780,8 +1880,7 @@
   }
 
   function split(a, b, t) {
-    if (a === b || !objects.includes(a) || !objects.includes(b)
-      || a.tier !== b.tier || objects.length + SPLIT_OBJECT_DELTA > MAX_OBJECTS) return false;
+    if (a === b || !objects.includes(a) || !objects.includes(b) || a.tier !== b.tier) return false;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const vx = (a.vx + b.vx) / 2;
@@ -1813,7 +1912,7 @@
         child.target = getConfiguredScale();
         child.frame = a.frame;
         child.lastBoop = t;
-        pulse(child, 'tap');
+        if (objects.length <= 400) pulse(child, 'tap');
       }
       return child;
     }).filter(Boolean);
