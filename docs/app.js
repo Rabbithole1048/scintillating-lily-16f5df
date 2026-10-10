@@ -5,7 +5,12 @@
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
   const frameBtn = document.getElementById('draw-frame');
-  const clearBtn = document.getElementById('clear-forms');
+  const clearObjectsBtn = document.getElementById('clear-forms');
+  const clearForcesBtn = document.getElementById('clear-forces');
+  const clearFramesBtn = document.getElementById('clear-frames');
+  const advancedBtn = document.getElementById('advanced');
+  const speedBtn = document.getElementById('speed');
+  const speedLabel = document.getElementById('speed-label');
   const hint = document.getElementById('hint');
   const countEl = document.getElementById('count');
   const splitsEl = document.getElementById('splits');
@@ -22,6 +27,8 @@
   const MAX_SPLIT_CHILDREN = 4;
   const SPLIT_OBJECT_DELTA = MAX_SPLIT_CHILDREN - 2;
   const MAX_FIELDS = 14;
+  const MIN_FIELD_RADIUS = 70;
+  const MAX_FIELD_RADIUS = 760;
   const LONG_PRESS_MS = 380;
   const TAP_MS = 280;
   const DOUBLE_TAP_MS = 340;
@@ -65,6 +72,12 @@
   let formDrag = null;
   let frameDrawing = false;
   let frameDraw = null;
+  let choosingSpawnPoint = false;
+  let spawnPoint = { x: innerWidth / 2, y: innerHeight / 2 };
+  let spawnMarker = null;
+  let sizeMode = 'random';
+  let colorMode = 'random';
+  let simulationSpeed = 1;
   let lastObjectNotice = false;
   let parallaxX = 0;
   let parallaxY = 0;
@@ -116,13 +129,14 @@
     const o = {
       el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
-      scale: initialScale, target: rand(0.85, 1.15),
+      scale: initialScale, target: initialScale === 0.05 ? getConfiguredScale() : rand(0.85, 1.15),
       pointers: new Map(), held: false, growing: false, grew: false,
       pinched: false, moved: false, timer: 0, lastTap: 0, downT: 0,
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
       seed: Math.random() * 1000, lastBoop: 0,
       splitAfter: performance.now() + 850,
       density: 0.75 + (formIndex % 5) * 0.13,
+      frame: null,
     };
 
     el.style.transform = `translate3d(${x - w / 2}px, ${y - h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
@@ -135,6 +149,16 @@
     objects.push(o);
     updateCount();
     return o;
+  }
+
+  function getConfiguredScale() {
+    if (sizeMode === 'random') return [0.75, 1.15, 1.65][Math.floor(rand(0, 3))];
+    return [0.75, 1.15, 1.65][sizeMode - 1];
+  }
+
+  function setObjectColor(object, hue) {
+    object.hue = hue;
+    object.el.style.setProperty('--h', hue);
   }
 
   function remove(o, allowEmpty = false, immediate = false) {
@@ -178,22 +202,35 @@
 
   function openPicker(mode) {
     setFrameDrawing(false);
+    choosingSpawnPoint = false;
+    room.classList.remove('choosing-spawn');
     placementType = null;
     pickerOptions.replaceChildren();
     pickerMode = mode;
-    pickerTitle.textContent = mode === 'forms' ? 'Choose a form' : 'Choose a force';
+    pickerTitle.textContent = mode === 'forms' ? 'Choose a form'
+      : mode === 'advanced' ? 'Advanced controls' : 'Choose a force';
     pickerHint.textContent = mode === 'forms'
       ? 'Drag a form into the room, or tap to add it.'
-      : 'Choose a force, then place it anywhere in the room.';
+      : mode === 'advanced' ? 'Choose a size, color or action.'
+        : 'Choose a force, then place it anywhere in the room.';
     formBtn.setAttribute('aria-expanded', String(mode === 'forms'));
 
     const choices = mode === 'forms'
       ? FORM_NAMES.map((name, index) => ({ id: String(index), name, icon: '', color: `hsl(${index * 22} 90% 70%)` }))
-      : EFFECTS[mode];
+      : mode === 'advanced'
+        ? [
+          { id: 'size-1', name: 'Size 1', icon: '1', color: '#89d8ff' },
+          { id: 'size-2', name: 'Size 2', icon: '2', color: '#a9a2ff' },
+          { id: 'size-3', name: 'Size 3', icon: '3', color: '#eea8ff' },
+          { id: 'size-random', name: 'Random sizes', icon: '↗', color: '#9fffd9' },
+          { id: 'explode', name: 'Explode random object', icon: '✹', color: '#ff9c72' },
+          { id: 'recolor', name: 'Change colors', icon: '◉', color: '#ffd66e' },
+        ]
+        : EFFECTS[mode];
 
     for (const choice of choices) {
       const option = document.createElement('button');
-      option.className = `picker-option${mode === 'forms' ? ' form-option' : ''}`;
+      option.className = `picker-option${mode === 'forms' ? ' form-option' : ''}${mode === 'advanced' ? ' advanced-option' : ''}`;
       option.type = 'button';
       option.style.setProperty('--option-color', choice.color);
       option.setAttribute('aria-label', choice.name);
@@ -214,6 +251,10 @@
         option.addEventListener('pointerdown', (e) => beginFormDrag(option, Number(choice.id), e));
       }
       option.addEventListener('click', () => {
+        if (mode === 'advanced') {
+          applyAdvancedAction(choice.id);
+          return;
+        }
         if (mode === 'forms') {
           if (formClickSuppression.has(option)) {
             clearTimeout(formClickSuppression.get(option));
@@ -224,14 +265,8 @@
             setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
             return;
           }
-          const bounds = formBtn.getBoundingClientRect();
           const index = Number(choice.id);
-          const hue = index * 22;
-          const o = create(bounds.left + bounds.width / 2, bounds.top - 12, rand(-220, 220), rand(-720, -480), index, hue);
-          if (o) {
-            o.target = rand(0.9, 1.15);
-            ripple(o.x, o.y, 100);
-          }
+          spawnForm(index, spawnPoint.x, spawnPoint.y);
           return;
         }
 
@@ -241,6 +276,18 @@
         setHint(`Tap an open spot to place ${choice.name}.`);
       });
       pickerOptions.appendChild(option);
+    }
+    if (mode === 'forms') {
+      const spawnAction = document.createElement('button');
+      spawnAction.className = 'picker-action';
+      spawnAction.type = 'button';
+      spawnAction.textContent = '⌖  Set spawn point';
+      spawnAction.addEventListener('click', () => {
+        choosingSpawnPoint = true;
+        room.classList.add('choosing-spawn');
+        setHint('Click or tap anywhere in the room to set the spawn point.');
+      });
+      pickerOptions.appendChild(spawnAction);
     }
     picker.hidden = false;
   }
@@ -295,7 +342,7 @@
       const timeout = setTimeout(() => formClickSuppression.delete(drag.option), 500);
       formClickSuppression.set(drag.option, timeout);
       if (!cancelled && e.clientX >= 0 && e.clientX <= W && e.clientY >= 0 && e.clientY <= H) {
-        spawnForm(drag.index, e.clientX, e.clientY);
+        spawnForm(drag.index, e.clientX, e.clientY, true);
       }
     }
     return true;
@@ -308,17 +355,127 @@
     formDrag = null;
   }
 
-  function spawnForm(index, x, y) {
+  function spawnForm(index, x, y, dropped = false) {
     if (objects.length >= MAX_OBJECTS) {
       setHint(`Room is full — split matching forms before adding more (max ${MAX_OBJECTS}).`);
       return null;
     }
-    const hue = index * 22;
+    const hue = colorMode === 'random' ? Math.floor(rand(0, 360)) : index * 22;
     const o = create(x, y, rand(-90, 90), rand(-90, 90), index, hue);
     if (!o) return null;
-    o.target = rand(0.9, 1.15);
+    o.target = getConfiguredScale();
+    if (dropped) o.frame = frameAt(x, y);
     ripple(o.x, o.y, 100);
     return o;
+  }
+
+  function applyAdvancedAction(action) {
+    if (action.startsWith('size-')) {
+      sizeMode = action === 'size-random' ? 'random' : Number(action.slice(-1));
+      for (const object of objects) {
+        object.target = getConfiguredScale();
+        object.scale = object.target;
+      }
+      setHint(`Object size set to ${action === 'size-random' ? 'random' : action.slice(-1)}.`);
+      return;
+    }
+    if (action === 'recolor') {
+      colorMode = 'random';
+      for (const object of objects) setObjectColor(object, Math.floor(rand(0, 360)));
+      setHint('Object colors changed.');
+      return;
+    }
+    if (action === 'explode') explodeRandomObject();
+  }
+
+  function explodeRandomObject() {
+    if (objects.length === 0) {
+      setHint('Add an object before triggering an explosion.');
+      return;
+    }
+    const object = objects[Math.floor(Math.random() * objects.length)];
+    const removed = objects.length > 1;
+    const blastRadius = 260;
+    object.el.classList.add('obj-exploding');
+    for (const other of objects) {
+      if (other === object) continue;
+      const dx = other.x - object.x;
+      const dy = other.y - object.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      if (distance < blastRadius) {
+        const force = (1 - distance / blastRadius) * 620;
+        other.vx += (dx / distance) * force;
+        other.vy += (dy / distance) * force;
+      }
+    }
+    if (removed) remove(object);
+    setTimeout(() => object.el.classList.remove('obj-exploding'), 500);
+    ripple(object.x, object.y, blastRadius);
+    setHint(removed ? 'A random object exploded and pushed nearby objects away.' : 'The last object is protected, but its blast still pushed nearby objects.');
+  }
+
+  function updateSpawnMarker() {
+    if (!spawnMarker) {
+      spawnMarker = document.createElement('div');
+      spawnMarker.className = 'spawn-marker';
+      spawnMarker.setAttribute('aria-hidden', 'true');
+      room.appendChild(spawnMarker);
+    }
+    spawnMarker.style.left = `${spawnPoint.x}px`;
+    spawnMarker.style.top = `${spawnPoint.y}px`;
+  }
+
+  function chooseSpawnPoint(e) {
+    if (!choosingSpawnPoint) return false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const bounds = room.getBoundingClientRect();
+    spawnPoint = {
+      x: clamp(e.clientX - bounds.left, 24, bounds.width - 24),
+      y: clamp(e.clientY - bounds.top, 24, bounds.height - 24),
+    };
+    choosingSpawnPoint = false;
+    room.classList.remove('choosing-spawn');
+    updateSpawnMarker();
+    setHint('Spawn point moved. Tap a form to spawn it there.');
+    return true;
+  }
+
+  function frameAt(x, y) {
+    return frames.find((frame) => (
+      x >= frame.x && x <= frame.x + frame.width
+      && y >= frame.y && y <= frame.y + frame.height
+    )) ?? null;
+  }
+
+  function assignFrameAfterDrag(object) {
+    object.frame = frameAt(object.x, object.y);
+  }
+
+  function clearForces() {
+    for (const field of fields) field.el.remove();
+    fields.length = 0;
+    fieldPointerOwner.clear();
+    setHint('All forces cleared.');
+  }
+
+  function clearFrames() {
+    setFrameDrawing(false);
+    for (const frame of frames) frame.el.remove();
+    frames.length = 0;
+    for (const object of objects) object.frame = null;
+    setHint('All frames cleared.');
+  }
+
+  function removeField(field) {
+    const index = fields.indexOf(field);
+    if (index === -1) return;
+    fields.splice(index, 1);
+    field.el.remove();
+    for (const [pointerId, pointer] of fieldPointerOwner) {
+      if (pointer.field === field) fieldPointerOwner.delete(pointerId);
+    }
+    setHint(`${field.name} removed.`);
   }
 
   function setFrameDrawing(active) {
@@ -382,7 +539,11 @@
       el.style.width = `${width}px`;
       el.style.height = `${height}px`;
       room.appendChild(el);
-      frames.push({ el, x: left, y: top, width, height });
+      const frame = { el, x: left, y: top, width, height };
+      frames.push(frame);
+      for (const object of objects) {
+        if (frameAt(object.x, object.y) === frame) object.frame = frame;
+      }
       setHint('Frame drawn. Forms that enter it stay inside.');
     }
     setFrameDrawing(false);
@@ -404,14 +565,7 @@
   }
 
   function keepInsideFrame(o, r) {
-    let frame = frames.find((candidate) => candidate === o.frame);
-    if (!frame) {
-      frame = frames.find((candidate) => (
-        o.x >= candidate.x && o.x <= candidate.x + candidate.width
-        && o.y >= candidate.y && o.y <= candidate.y + candidate.height
-      ));
-      if (frame) o.frame = frame;
-    }
+    const frame = frames.find((candidate) => candidate === o.frame);
     if (!frame) return;
 
     const minX = frame.x + r;
@@ -462,17 +616,28 @@
     const field = {
       type, name: definition.name, x, y, radius: type === 'laser' ? 210 : 190,
       angle: rand(-Math.PI, Math.PI), phase: rand(0, TAU), el, pinned: false,
+      pointers: new Map(), pinch: null, gestureMoved: false, gesturePinched: false,
     };
     fields.push(field);
     el.setAttribute('role', 'button');
     el.tabIndex = 0;
     el.addEventListener('pointerdown', (e) => onFieldDown(field, e));
+    el.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeField(field);
+    });
     el.addEventListener('keydown', (e) => {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
+        removeField(field);
+        return;
+      }
       if (e.key !== 'Enter' && e.key !== ' ') return;
       e.preventDefault();
       toggleFieldPinned(field);
     });
-    updateFieldPositions();
+    updateFieldElement(field);
     ripple(x, y, 90);
   }
 
@@ -482,7 +647,9 @@
     field.el.classList.toggle('field-pinned', field.pinned);
     field.el.setAttribute('aria-label', `${field.name} force, ${field.pinned ? 'fixed, select to release' : 'movable, select to fix'}`);
     field.el.setAttribute('aria-pressed', String(field.pinned));
-    field.el.title = `${field.name} — ${field.pinned ? 'fixed (click to release)' : 'movable (drag to move, click to fix)'}`;
+    field.el.title = `${field.name} — ${field.pinned ? 'fixed (click to release)' : 'movable (drag, pinch to resize, double-click or press Delete to remove)'}`;
+    field.el.style.setProperty('--force-scale', field.radius / 190);
+    field.el.style.setProperty('--force-radius', `${field.radius}px`);
     if (field.type === 'laser') field.el.style.setProperty('--beam-angle', `${field.angle}rad`);
   }
 
@@ -495,13 +662,29 @@
   function onFieldDown(field, e) {
     e.preventDefault();
     e.stopPropagation();
+    if (field.pointers.size >= 2) return;
     if (field.pinned) {
       toggleFieldPinned(field);
       return;
     }
-    fieldPointerOwner.set(e.pointerId, {
-      field, startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false,
-    });
+    const pointer = {
+      field, x: e.clientX, y: e.clientY,
+      startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY,
+    };
+    field.pointers.set(e.pointerId, pointer);
+    fieldPointerOwner.set(e.pointerId, pointer);
+    if (field.pointers.size === 1) {
+      field.gestureMoved = false;
+      field.gesturePinched = false;
+    } else {
+      const [a, b] = [...field.pointers.values()];
+      field.pinch = {
+        distance: dist(a, b), radius: field.radius, x: field.x, y: field.y,
+        centerX: (a.x + b.x) / 2, centerY: (a.y + b.y) / 2,
+      };
+      field.gesturePinched = true;
+    }
+    field.el.setPointerCapture(e.pointerId);
     field.el.classList.add('field-dragging');
   }
 
@@ -509,28 +692,52 @@
     const pointer = fieldPointerOwner.get(e.pointerId);
     if (!pointer) return false;
     const { field } = pointer;
-    const dx = e.clientX - pointer.lastX;
-    const dy = e.clientY - pointer.lastY;
-    if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > MOVE_SLOP) pointer.moved = true;
-    if (pointer.moved) {
-      field.x = clamp(field.x + dx, 0, W);
-      field.y = clamp(field.y + dy, 0, H);
-      if (field.type === 'air' || field.type === 'laser') field.angle = Math.atan2(dy, dx);
+    pointer.x = e.clientX;
+    pointer.y = e.clientY;
+    if (field.pointers.size >= 2) {
+      const [a, b] = [...field.pointers.values()];
+      const centerX = (a.x + b.x) / 2;
+      const centerY = (a.y + b.y) / 2;
+      field.radius = clamp(field.pinch.radius * dist(a, b) / field.pinch.distance, MIN_FIELD_RADIUS, MAX_FIELD_RADIUS);
+      field.x = clamp(field.pinch.x + centerX - field.pinch.centerX, 0, W);
+      field.y = clamp(field.pinch.y + centerY - field.pinch.centerY, 0, H);
+      field.gestureMoved = true;
+      field.gesturePinched = true;
       updateFieldElement(field);
+    } else {
+      const dx = e.clientX - pointer.lastX;
+      const dy = e.clientY - pointer.lastY;
+      if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > MOVE_SLOP) field.gestureMoved = true;
+      if (field.gestureMoved) {
+        field.x = clamp(field.x + dx, 0, W);
+        field.y = clamp(field.y + dy, 0, H);
+        if (field.type === 'air' || field.type === 'laser') field.angle = Math.atan2(dy, dx);
+        updateFieldElement(field);
+      }
+      pointer.lastX = e.clientX;
+      pointer.lastY = e.clientY;
     }
-    pointer.lastX = e.clientX;
-    pointer.lastY = e.clientY;
     return true;
   }
 
   function onFieldUp(e) {
     const pointer = fieldPointerOwner.get(e.pointerId);
     if (!pointer) return false;
-    fieldPointerOwner.delete(e.pointerId);
     const { field } = pointer;
+    fieldPointerOwner.delete(e.pointerId);
+    field.pointers.delete(e.pointerId);
     field.el.classList.remove('field-dragging');
-    if (!pointer.moved) {
+    if (field.pointers.size > 0) {
+      const remaining = field.pointers.values().next().value;
+      remaining.startX = remaining.lastX = remaining.x;
+      remaining.startY = remaining.lastY = remaining.y;
+      return true;
+    }
+    field.el.classList.remove('field-dragging');
+    if (!field.gestureMoved && !field.gesturePinched) {
       toggleFieldPinned(field);
+    } else if (field.gesturePinched) {
+      setHint(`${field.name} influence size: ${Math.round(field.radius)}. Double-click or press Delete to remove.`);
     } else {
       setHint(`${field.name} moved. Select it to fix it in place.`);
     }
@@ -546,6 +753,7 @@
   }
 
   function applyFields(o, dt, t) {
+    let glow = 0;
     for (const field of fields) {
       const dx = o.x - field.x;
       const dy = o.y - field.y;
@@ -559,17 +767,7 @@
       switch (field.type) {
         case 'sand':
         case 'fire':
-          o.vx += nx * 220 * strength * dt;
-          o.vy += ny * 220 * strength * dt;
-          if (d < 25) {
-            if (objects.length > 1) {
-              remove(o);
-              field.el.classList.add('field-burst');
-              setTimeout(() => field.el.classList.remove('field-burst'), 350);
-              return false;
-            }
-            showLastObjectNotice();
-          }
+          glow = Math.max(glow, strength);
           break;
         case 'water':
           o.vx += -ny * 190 * strength * dt;
@@ -583,11 +781,7 @@
           const along = dx * Math.cos(field.angle) + dy * Math.sin(field.angle);
           const across = Math.abs(-dx * Math.sin(field.angle) + dy * Math.cos(field.angle));
           if (along > 0 && along < field.radius && across < radius(o) + 7) {
-            if (objects.length > 1) {
-              remove(o);
-              return false;
-            }
-            showLastObjectNotice();
+            glow = Math.max(glow, 1 - across / (radius(o) + 7));
           }
           break;
         }
@@ -599,6 +793,8 @@
           break;
       }
     }
+    o.el.classList.toggle('force-glow', glow > 0);
+    if (glow > 0) o.el.style.setProperty('--glow-strength', glow);
     return true;
   }
 
@@ -680,6 +876,7 @@
   // A second finger on empty space still pinches the object you are holding.
   room.addEventListener('pointerdown', (e) => {
     if (beginFrameDraw(e)) return;
+    if (chooseSpawnPoint(e)) return;
     if (!placementType) return;
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -768,6 +965,7 @@
     const wasGrowing = o.grew;
     stopGrow(o);
     const now = performance.now();
+    if (o.moved) assignFrameAfterDrag(o);
     if (o.moved && trySplit(o)) return;
     const isTap = !o.moved && !o.pinched && !wasGrowing && now - o.downT < TAP_MS;
 
@@ -814,6 +1012,7 @@
   });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
+  advancedBtn.addEventListener('click', () => openPicker('advanced'));
   pickerClose.addEventListener('click', closePicker);
   frameBtn.addEventListener('click', () => {
     closePicker();
@@ -822,11 +1021,21 @@
     setFrameDrawing(!frameDrawing);
     if (frameDrawing) setHint('Drag across the room to draw a frame.');
   });
-  clearBtn.addEventListener('click', clearForms);
+  clearObjectsBtn.addEventListener('click', clearForms);
+  clearForcesBtn.addEventListener('click', clearForces);
+  clearFramesBtn.addEventListener('click', clearFrames);
+  speedBtn.addEventListener('click', () => {
+    simulationSpeed = simulationSpeed === 1 ? 2 : simulationSpeed === 2 ? 4 : 1;
+    speedLabel.textContent = `${simulationSpeed}×`;
+    speedBtn.setAttribute('aria-label', `Simulation speed ${simulationSpeed} times`);
+    speedBtn.setAttribute('aria-pressed', String(simulationSpeed > 1));
+  });
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closePicker();
       placementType = null;
+      choosingSpawnPoint = false;
+      room.classList.remove('choosing-spawn');
       room.classList.remove('placing');
       setFrameDrawing(false);
     }
@@ -837,6 +1046,9 @@
     const oldH = H;
     W = innerWidth;
     H = innerHeight;
+    spawnPoint.x = clamp(spawnPoint.x * W / oldW, 24, W - 24);
+    spawnPoint.y = clamp(spawnPoint.y * H / oldH, 24, H - 24);
+    if (spawnMarker) updateSpawnMarker();
     for (const o of objects) {
       o.x = clamp(o.x * W / oldW, radius(o), W - radius(o));
       o.y = clamp(o.y * H / oldH, radius(o), H - radius(o));
@@ -862,7 +1074,7 @@
   let lastT = performance.now();
 
   function frame(t) {
-    const dt = Math.min(0.033, (t - lastT) / 1000);
+    const dt = Math.min(0.033, (t - lastT) / 1000) * simulationSpeed;
     lastT = t;
     const parallaxEase = Math.min(1, dt * (pointerOwner.size ? 12 : 2.8));
     parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
@@ -1058,7 +1270,8 @@
         childSize,
       );
       if (child) {
-        child.target = 0.9;
+        child.target = getConfiguredScale();
+        child.frame = a.frame;
         child.lastBoop = t;
         pulse(child, 'tap');
       }

@@ -3,11 +3,13 @@
 Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces, with up to 1,000 forms on screen:
 
 - **Bring matching forms together** to split them into four smaller forms of the same shape. Different forms bounce apart. Splitting can continue until the 1,000-form limit is reached.
-- Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it near the dock.
-- Use the pencil button to draw a rectangular frame. Forms that enter it stay inside; forms outside continue moving freely. Draw another frame by selecting the pencil again.
-- Use **Clear** to remove all forms at once. Placed forces and drawn frames stay in the room.
+- Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it at the saved spawn point. Use **Set spawn point** in the picker to move that point.
+- Use the pencil button to draw a rectangular frame around forms. Forms enclosed by a drawn frame, or dragged and dropped into one, stay inside; free-floating forms cannot enter a frame on their own.
+- **Clear Objects**, **Clear Forces**, and **Clear Frames** independently remove their respective items.
+- Pinch forms to resize them. Pinch a force to adjust its influence radius; double-click a force or focus it and press Delete to remove it. Sand, Fire, and Laser make nearby objects glow without damaging them.
+- **Advanced** applies size 1, 2, 3, or random sizes to current and future forms, changes their colors, or explodes a random form to push nearby ones away. The speed button cycles through 1×, 2×, and 4×.
 - Controls and gameplay hints stay hidden at startup and appear only when an action needs an explanation.
-- Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Drag a force to move it; select it to pin or release it. Sand and Fire share a radial blast; Sunlight and Magnetlight share an orbiting attraction. Sand/Fire and Laser can remove forms, but one protected form always remains.
+- Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Drag a force to move it; select it to pin or release it. Pinch adjusts its influence radius. Sand, Fire, and Laser only make nearby forms glow; Water swirls, Air pushes, and Sunlight/Magnetlight attract.
 - The normal effects preserve one form; the **Clear** button intentionally bypasses that protection. The displayed zero-object goal remains an intentionally locked challenge for regular gameplay.
 - Desktop and mobile layouts are supported; small distant lights add depth to the backdrop.
 
