@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Floatroom — touch the floating glass</title>
+  <meta name="description" content="A playful room full of floating liquid-glass objects. Drag, fling, pinch, hold to grow, double-tap to shrink." />
+  <meta name="theme-color" content="#0c0620" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true">
+    <div class="aura a1"></div>
+    <div class="aura a2"></div>
+    <div class="aura a3"></div>
+    <div class="aura a4"></div>
+    <div class="aura a5"></div>
+    <div class="grid"></div>
+    <div class="word"><span>touch</span><span>the float</span></div>
+    <div class="grain"></div>
+  </div>
+
+  <main id="room" aria-label="Room of floating glass objects"></main>
+
+  <header class="top">
+    <div class="brand glass-ui"><i class="logo"></i>Floatroom</div>
+    <div class="right">
+      <button id="tilt" class="tilt glass-ui" type="button" aria-pressed="false" hidden>
+        <span class="level" aria-hidden="true"><i></i></span><span class="label">tilt</span>
+      </button>
+      <div class="count glass-ui"><b id="count">0</b> floating</div>
+    </div>
+  </header>
+
+  <div id="hint" class="hint" aria-live="polite">
+    <span class="chip glass-ui">✋ drag &amp; fling</span>
+    <span class="chip glass-ui">🤏 pinch to resize</span>
+    <span class="chip glass-ui">⏺ hold to grow</span>
+    <span class="chip glass-ui">✌︎ double-tap to shrink</span>
+    <span id="tilt-chip" class="chip glass-ui" hidden>📱 tilt &amp; shake — bubbles float the other way</span>
+  </div>
+
+  <div class="dock">
+    <div class="orbit" aria-hidden="true">
+      <span class="dot" style="--i:0"></span>
+      <span class="dot" style="--i:1"></span>
+      <span class="dot" style="--i:2"></span>
+    </div>
+    <button id="add" class="add glass-ui" type="button" aria-label="Bring another object into the room">
+      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
