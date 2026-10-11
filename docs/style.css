@@ -476,8 +476,21 @@ body.help-hidden .hint { display: none; }
   .stats-toggle { padding: 8px 10px; font-size: 11px; }
   .stats-panel { top: calc(58px + env(safe-area-inset-top)); right: 10px; }
   .game-score { top: calc(62px + env(safe-area-inset-top)); gap: 5px 8px; padding: 8px 10px; font-size: 10px; }
-  .hint { bottom: calc(126px + env(safe-area-inset-bottom)); gap: 6px; }
-  .chip { padding: 7px 10px; font-size: 11px; }
+  .hint {
+    bottom: calc(126px + env(safe-area-inset-bottom));
+    width: calc(100vw - 24px);
+    max-width: 420px;
+    gap: 6px;
+  }
+  .chip {
+    max-width: 100%;
+    padding: 7px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+    text-align: center;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .picker {

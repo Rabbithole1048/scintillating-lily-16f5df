@@ -175,7 +175,7 @@
   let sizeMode = 'random';
   let colorMode = 'random';
   let simulationSpeed = 1;
-  let cameraZoom = Math.min(VIEW_W, VIEW_H) <= 600 ? 0.72 : 1;
+  let cameraZoom = Math.min(VIEW_W, VIEW_H) <= 600 ? 0.5 : 1;
   let cameraX = VIEW_W / 2 - W * cameraZoom / 2;
   let cameraY = VIEW_H / 2 - H * cameraZoom / 2;
   let worldOffsetX = 0;
