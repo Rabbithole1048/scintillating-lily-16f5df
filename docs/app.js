@@ -24,6 +24,7 @@
   const gameComboEl = document.getElementById('game-combo');
   const gameTargetColorEl = document.getElementById('game-target-color');
   const gameTargetSwatch = document.getElementById('game-target-swatch');
+  const appVersionEl = document.getElementById('app-version');
   const statsToggle = document.getElementById('stats-toggle');
   const statsPanel = document.getElementById('stats-panel');
   const statsClose = document.getElementById('stats-close');
@@ -79,8 +80,14 @@
   const WORLD_SCALE = 8;
   const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
+  const APP_VERSION = '1.0.0';
   const GAME_DURATION_MS = 60_000;
   const GAME_RESPAWN_DELAY_MS = 2_000;
+  const GAME_BALL_BASE_INTERVAL_MS = 2_200;
+  const GAME_BALL_MAX_INTERVAL_MS = 13_000;
+  const GAME_ROCKET_START_SCORE = 10;
+  const GAME_ROCKET_BASE_INTERVAL_MS = 9_000;
+  const GAME_ROCKET_MIN_INTERVAL_MS = 2_500;
   const MAX_SPLIT_CHILDREN = 4;
   const MAX_FIELDS = 14;
   const MAX_RECURRING_SPAWNERS = 12;
@@ -181,10 +188,13 @@
   let gameScore = 0;
   let activatedStones = 0;
   const gameStones = new Set();
+  const gameRockets = new Set();
   let gameTargetColor = null;
   let gameStoneExpiresAt = 0;
   let gameEndsAt = 0;
   let gameNextStoneAt = 0;
+  let gameBallNextSpawnAt = 0;
+  let gameRocketNextSpawnAt = 0;
   let gameCombo = 0;
   let gameTimeRemaining = GAME_DURATION_MS / 1000;
   let lastDisplayedGameSecond = -1;
@@ -403,6 +413,7 @@
       prevV: { x: 0, y: 0 }, off: { x: 0, y: 0 }, samples: [], pinch: null,
       seed: Math.random() * 1000, lastBoop: 0,
       splitAfter: performance.now() + 850,
+      gameSplitUsed: false,
       density: 0.75 + (formIndex % 5) * 0.13,
       playerNudgedUntil: 0,
       frame: null, demoOrbit: null,
@@ -506,6 +517,7 @@
     meanSpeedEl.textContent = `${Math.round(totalSpeed / Math.max(objects.length, 1))} px/s`;
     kineticIndexEl.textContent = Math.round(kineticIndex).toLocaleString();
     glassAreaEl.textContent = `${Math.round(glassArea).toLocaleString()} px²`;
+    appVersionEl.textContent = APP_VERSION;
   }
 
   function recordObjectSpeed(object) {
@@ -526,6 +538,11 @@
     gameTargetColor = null;
   }
 
+  function clearGameRockets() {
+    for (const rocket of gameRockets) rocket.el.remove();
+    gameRockets.clear();
+  }
+
   function createGameStone(now = performance.now()) {
     clearGameStones();
     const size = Math.max(36, 50 - Math.max(0, gameScore) * 0.12);
@@ -533,13 +550,14 @@
     gameTargetColor = targetColor.name;
     const decoyCount = Math.min(10, 1 + Math.floor(Math.max(0, gameScore) / 10));
     const decoyColors = GAME_COLORS.filter((color) => color !== targetColor);
-    const innerRadius = size * 1.55;
-    const outerRadius = size * 2.65;
-    const clusterMargin = Math.max(20, Math.min(
-      decoyCount > 4 ? outerRadius + size * 0.41 : innerRadius + size * 0.41,
-      VIEW_W / 2 - 20,
-      VIEW_H / 2 - 20,
-    ));
+    const maxStoneDistance = Math.max(
+      0,
+      (Math.min(VIEW_W, VIEW_H) / 2 - size * 0.7 - 12) / cameraZoom,
+    );
+    const outerRadius = Math.min(size * 3.6, maxStoneDistance);
+    const innerRadius = Math.min(size * 2.35, outerRadius * 0.62);
+    const clusterRadius = decoyCount > 4 ? outerRadius : innerRadius;
+    const clusterMargin = Math.max(20, (clusterRadius + size * 0.55) * cameraZoom + 12);
     const positions = [randomVisiblePoint(clusterMargin)];
     for (let index = 0; index < decoyCount; index++) {
       const angle = index < 4
@@ -572,7 +590,7 @@
         y: positions[0].y + Math.sin(angle) * distance,
       };
     }
-    const visibleFor = Math.max(1800, 4000 - Math.max(0, gameScore) * 15);
+    const visibleFor = Math.max(1800, 6000 - Math.max(0, gameScore) * 30);
     gameStoneExpiresAt = now + visibleFor;
     positions.forEach((position, index) => {
       const isTarget = index === 0;
@@ -606,8 +624,11 @@
     gameEndsAt = performance.now() + GAME_DURATION_MS;
     gameTimeRemaining = GAME_DURATION_MS / 1000;
     gameNextStoneAt = 0;
+    gameBallNextSpawnAt = performance.now() + 1_500;
+    gameRocketNextSpawnAt = 0;
     lastDisplayedGameSecond = -1;
     for (const object of objects) object.playerNudgedUntil = 0;
+    clearGameRockets();
     createGameStone(performance.now());
     updateGameScore();
     setHint('60 seconds: nudge a form into the shown color. Hit a different color and lose points.');
@@ -617,6 +638,7 @@
     gameActive = false;
     gameFinished = true;
     clearGameStones();
+    clearGameRockets();
     updateGameScore();
     if (won) setHint('You won! Exactly 100 points!');
     else if (timedOut) setHint(`Time is up! Final score: ${gameScore} points.`);
@@ -691,6 +713,104 @@
       gameNextStoneAt = t + GAME_RESPAWN_DELAY_MS;
       setHint(`Correct color! +${points} point${points === 1 ? '' : 's'} (x${gameMultiplier()} combo).`);
       return;
+    }
+  }
+
+  function createGameRocket(now) {
+    const bounds = visibleWorldBounds();
+    const side = Math.floor(rand(0, 4));
+    const speed = 620;
+    const angle = [
+      rand(-0.35, 0.35),
+      Math.PI + rand(-0.35, 0.35),
+      Math.PI / 2 + rand(-0.35, 0.35),
+      -Math.PI / 2 + rand(-0.35, 0.35),
+    ][side];
+    const x = side === 0 ? bounds.left - 70
+      : side === 1 ? bounds.right + 70
+        : rand(bounds.left, bounds.right);
+    const y = side === 2 ? bounds.top - 70
+      : side === 3 ? bounds.bottom + 70
+        : rand(bounds.top, bounds.bottom);
+    const el = document.createElement('div');
+    el.className = 'game-rocket';
+    el.textContent = '🚀';
+    el.setAttribute('aria-hidden', 'true');
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.transform = `rotate(${angle}rad)`;
+    room.appendChild(el);
+    gameRockets.add({
+      el, x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+      radius: 118, expiresAt: now + 12_000, affected: new Set(),
+    });
+  }
+
+  function updateGameHazards(now, dt) {
+    if (!gameActive) return;
+
+    if (objects.length < MAX_OBJECTS && now >= gameBallNextSpawnAt) {
+      const point = randomVisiblePoint(72);
+      const angle = rand(0, TAU);
+      create(point.x, point.y, Math.cos(angle) * 90, Math.sin(angle) * 90, 0, rand(0, 360), 0.05, rand(64, 92));
+      const ballInterval = Math.min(
+        GAME_BALL_MAX_INTERVAL_MS,
+        GAME_BALL_BASE_INTERVAL_MS + Math.max(0, gameScore) * 105,
+      );
+      gameBallNextSpawnAt = now + ballInterval;
+    }
+
+    if (gameScore >= GAME_ROCKET_START_SCORE && now >= gameRocketNextSpawnAt) {
+      createGameRocket(now);
+      gameRocketNextSpawnAt = now + Math.max(
+        GAME_ROCKET_MIN_INTERVAL_MS,
+        GAME_ROCKET_BASE_INTERVAL_MS - (gameScore - GAME_ROCKET_START_SCORE) * 90,
+      );
+    }
+
+    const bounds = visibleWorldBounds();
+    for (const rocket of gameRockets) {
+      const previousX = rocket.x;
+      const previousY = rocket.y;
+      rocket.x += rocket.vx * dt;
+      rocket.y += rocket.vy * dt;
+      rocket.el.style.left = `${rocket.x}px`;
+      rocket.el.style.top = `${rocket.y}px`;
+
+      const segmentX = rocket.x - previousX;
+      const segmentY = rocket.y - previousY;
+      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+      for (const object of objects) {
+        if (object.held || rocket.affected.has(object)) continue;
+        const along = clamp(
+          ((object.x - previousX) * segmentX + (object.y - previousY) * segmentY)
+            / Math.max(segmentLengthSquared, 1),
+          0,
+          1,
+        );
+        const closestX = previousX + segmentX * along;
+        const closestY = previousY + segmentY * along;
+        const dx = object.x - closestX;
+        const dy = object.y - closestY;
+        const distance = Math.hypot(dx, dy);
+        const influenceRadius = rocket.radius + radius(object);
+        if (distance >= influenceRadius) continue;
+
+        rocket.affected.add(object);
+        const strength = 1 - distance / influenceRadius;
+        const nx = distance > 0 ? dx / distance : -rocket.vy / 620;
+        const ny = distance > 0 ? dy / distance : rocket.vx / 620;
+        object.vx += rocket.vx * 0.48 + nx * 300 * strength;
+        object.vy += rocket.vy * 0.48 + ny * 300 * strength;
+        pulse(object, 'boop');
+      }
+
+      if (now >= rocket.expiresAt || rocket.x < bounds.left - 120
+        || rocket.x > bounds.right + 120 || rocket.y < bounds.top - 120
+        || rocket.y > bounds.bottom + 120) {
+        rocket.el.remove();
+        gameRockets.delete(rocket);
+      }
     }
   }
 
@@ -1854,6 +1974,7 @@
     const dt = Math.min(0.033, (t - lastT) / 1000) * simulationSpeed;
     lastT = t;
     updateGameClock(t);
+    updateGameHazards(t, dt);
     const parallaxEase = Math.min(1, dt * (cameraPointers.size ? 8 : 2.8));
     parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
@@ -2050,6 +2171,7 @@
             }
 
             if (!a.held && !b.held && a.tier === b.tier
+              && (!gameActive || (!a.gameSplitUsed && !b.gameSplitUsed))
               && a.splitAfter <= t && b.splitAfter <= t) {
               split(a, b, t);
               return;
@@ -2090,7 +2212,9 @@
     let closest = null;
     let closestDistance = Infinity;
     for (const other of objects) {
-      if (other === o || other.held || other.tier !== o.tier || other.splitAfter > performance.now()) continue;
+      if (other === o || other.held || other.tier !== o.tier
+        || (gameActive && (other.gameSplitUsed || o.gameSplitUsed))
+        || other.splitAfter > performance.now()) continue;
       const d = Math.hypot(other.x - o.x, other.y - o.y);
       const splitDistance = (radius(o) + radius(other)) * 1.04;
       if (d < splitDistance && d < closestDistance) {
@@ -2106,6 +2230,8 @@
 
   function split(a, b, t) {
     if (a === b || !objects.includes(a) || !objects.includes(b) || a.tier !== b.tier) return false;
+    if (gameActive && (a.gameSplitUsed || b.gameSplitUsed)) return false;
+    if (gameActive) a.gameSplitUsed = b.gameSplitUsed = true;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const vx = (a.vx + b.vx) / 2;
@@ -2180,6 +2306,5 @@
   seedDistantLights();
   updateGameStats();
   updateRoomStats(performance.now(), true);
-  playRoomMusic();
   requestAnimationFrame(frame);
 })();

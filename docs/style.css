@@ -134,12 +134,17 @@ html, body {
     radial-gradient(circle, color-mix(in srgb, var(--stone-color), white 12%) 0 24%, var(--stone-color) 25% 55%, color-mix(in srgb, var(--stone-color), #140b30 55%) 78%);
   box-shadow: 0 0 12px color-mix(in srgb, var(--stone-color), transparent 12%), 0 0 30px color-mix(in srgb, var(--stone-color), transparent 50%), inset 0 0 10px rgba(255,255,255,.62);
   color: #fff; font-size: calc(var(--stone-size, 50px) * .44); text-shadow: 0 0 8px #fff, 0 0 16px var(--stone-color);
-  animation: target-stone-pulse 1.5s ease-in-out infinite alternate;
   pointer-events: none;
 }
-.game-stone.is-target { border-width: 3px; }
-@keyframes target-stone-pulse {
-  to { transform: scale(1.12); box-shadow: 0 0 20px rgba(255,189,85,1), 0 0 44px rgba(255,93,83,.82), inset 0 0 10px rgba(255,255,255,.72); }
+.game-stone.is-target { border-width: 3px; animation: target-stone-blink .55s steps(2, end) infinite; }
+@keyframes target-stone-blink {
+  50% { opacity: .3; transform: scale(1.12); box-shadow: 0 0 20px rgba(255,189,85,1), 0 0 44px rgba(255,93,83,.82), inset 0 0 10px rgba(255,255,255,.72); }
+}
+.game-rocket {
+  position: absolute; z-index: 2147483646; width: 48px; height: 48px; margin: -24px;
+  display: grid; place-items: center; font-size: 36px; line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(255,156,66,.85));
+  pointer-events: none; will-change: left, top, transform;
 }
 
 /* halo that pulses while an object is being held to grow */
