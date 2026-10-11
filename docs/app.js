@@ -82,6 +82,7 @@
   const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
   const APP_VERSION = '1.1.0';
+  const INTRO_ARRIVAL_DURATION_MS = 1800;
   const GAME_DURATION_MS = 60_000;
   const GAME_RESPAWN_DELAY_MS = 2_000;
   const GAME_BALL_BASE_INTERVAL_MS = 2_200;
@@ -173,9 +174,9 @@
   let sizeMode = 'random';
   let colorMode = 'random';
   let simulationSpeed = 1;
-  let cameraZoom = 1;
-  let cameraX = VIEW_W / 2 - W / 2;
-  let cameraY = VIEW_H / 2 - H / 2;
+  let cameraZoom = Math.min(VIEW_W, VIEW_H) <= 600 ? 0.72 : 1;
+  let cameraX = VIEW_W / 2 - W * cameraZoom / 2;
+  let cameraY = VIEW_H / 2 - H * cameraZoom / 2;
   let worldOffsetX = 0;
   let worldOffsetY = 0;
   let cameraPinch = null;
@@ -213,6 +214,19 @@
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) || 1;
   const radius = (o) => ((o.w + o.h) / 4) * o.scale;
   const shapeAt = (tier) => SHAPES[tier % SHAPES.length];
+  const zoomLimits = () => Math.min(VIEW_W, VIEW_H) <= 600
+    ? { min: 0.5, max: 0.9 }
+    : { min: 0.45, max: 2.5 };
+
+  function clampObjectToMap(o) {
+    const safeRadius = Math.hypot(o.w, o.h) / 2 * Math.max(o.scale, o.target);
+    const x = clamp(o.x, safeRadius, W - safeRadius);
+    const y = clamp(o.y, safeRadius, H - safeRadius);
+    const moved = x !== o.x || y !== o.y;
+    o.x = x;
+    o.y = y;
+    return moved;
+  }
 
   function worldPoint(clientX, clientY) {
     return {
@@ -320,7 +334,8 @@
       updatePanParallax(pointerDx / 2, pointerDy / 2);
       const [a, b] = [...cameraPointers.values()];
       const distance = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, 0.45, 2.5);
+      const limits = zoomLimits();
+      cameraZoom = clamp(cameraPinch.zoom * distance / cameraPinch.distance, limits.min, limits.max);
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
       cameraX = midX - (cameraPinch.worldX + worldOffsetX) * cameraZoom;
@@ -356,7 +371,8 @@
 
   function zoomAt(factor) {
     const anchor = worldPoint(VIEW_W / 2, VIEW_H / 2);
-    cameraZoom = clamp(cameraZoom * factor, 0.45, 2.5);
+    const limits = zoomLimits();
+    cameraZoom = clamp(cameraZoom * factor, limits.min, limits.max);
     cameraX = VIEW_W / 2 - (anchor.x + worldOffsetX) * cameraZoom;
     cameraY = VIEW_H / 2 - (anchor.y + worldOffsetY) * cameraZoom;
     updateCamera();
@@ -431,7 +447,8 @@
       collisionIndex: 0, collisionRadius: 0, collisionCellX: 0, collisionCellY: 0,
     };
 
-    el.style.transform = `translate3d(${x - w / 2}px, ${y - h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
+    clampObjectToMap(o);
+    el.style.transform = `translate3d(${o.x - w / 2}px, ${o.y - h / 2}px, 0) rotate(${o.rot}deg) scale(${o.scale})`;
     el.addEventListener('pointerdown', (e) => onDown(o, e));
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -1796,6 +1813,7 @@
         o.vy = (p.y - s0.y) / dt;
       }
     }
+    if (clampObjectToMap(o)) o.vx = o.vy = 0;
   });
 
   function onUp(e) {
@@ -1807,6 +1825,7 @@
     if (!o) return;
     pointerOwner.delete(e.pointerId);
     o.pointers.delete(e.pointerId);
+    clampObjectToMap(o);
     if (o.pointers.size === 1) {
       beginDrag(o, [...o.pointers.values()][0]);
       return;
@@ -1940,6 +1959,8 @@
     const centerWorldY = (VIEW_H / 2 - cameraY) / cameraZoom - worldOffsetY;
     VIEW_W = innerWidth;
     VIEW_H = innerHeight;
+    const limits = zoomLimits();
+    cameraZoom = clamp(cameraZoom, limits.min, limits.max);
     W = Math.ceil(VIEW_W * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
     H = Math.ceil(VIEW_H * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
     const worldScaleX = W / oldW;
@@ -1964,6 +1985,9 @@
         o.demoOrbit.centerX *= worldScaleX;
         o.demoOrbit.centerY *= worldScaleY;
         o.demoOrbit.radius *= Math.sqrt(worldScaleX * worldScaleY);
+        if (o.demoOrbit.arrival) {
+          o.demoOrbit.arrival.startRadius *= Math.sqrt(worldScaleX * worldScaleY);
+        }
       }
     }
     for (const field of fields) {
@@ -2061,15 +2085,51 @@
 
       if (o.growing) o.target = Math.min(MAX_SCALE, o.target * (1 + 1.15 * dt));
       if (o.pointers.size < 2) o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
+      clampObjectToMap(o);
 
       if (o.held) continue;
       if (o.demoOrbit) {
         const orbit = o.demoOrbit;
         orbit.phase += dt * orbit.speed;
-        o.x = orbit.centerX + Math.cos(orbit.phase) * orbit.radius;
-        o.y = orbit.centerY + Math.sin(orbit.phase) * orbit.radius;
-        o.vx = -Math.sin(orbit.phase) * orbit.radius * orbit.speed;
-        o.vy = Math.cos(orbit.phase) * orbit.radius * orbit.speed;
+        let currentRadius = orbit.radius;
+        let radialSpeed = 0;
+        if (orbit.arrival) {
+          const progress = clamp((t - orbit.arrival.startedAt) / orbit.arrival.duration, 0, 1);
+          const remaining = 1 - progress;
+          const easedProgress = 1 - remaining ** 3;
+          currentRadius = orbit.arrival.startRadius
+            + (orbit.radius - orbit.arrival.startRadius) * easedProgress;
+          radialSpeed = (orbit.radius - orbit.arrival.startRadius)
+            * 3 * remaining ** 2 / (orbit.arrival.duration / 1000);
+          if (progress === 1) orbit.arrival = null;
+        }
+        for (const other of objects) {
+          if (other === o || !other.demoOrbit || other.held) continue;
+          const dx = other.x - orbit.centerX;
+          const dy = other.y - orbit.centerY;
+          const otherRadius = Math.hypot(dx, dy);
+          const clearance = radius(o) + radius(other) + 10;
+          if (Math.abs(currentRadius - otherRadius) >= clearance || currentRadius * otherRadius === 0) continue;
+          const cosAngle = clamp(
+            (currentRadius ** 2 + otherRadius ** 2 - clearance ** 2)
+              / (2 * currentRadius * otherRadius),
+            -1,
+            1,
+          );
+          const minAngle = Math.acos(cosAngle);
+          const otherAngle = Math.atan2(dy, dx);
+          const angleDelta = wrap(orbit.phase - otherAngle + Math.PI, TAU) - Math.PI;
+          if (Math.abs(angleDelta) < minAngle) {
+            const direction = Math.sign(angleDelta) || (o.id < other.id ? 1 : -1);
+            orbit.phase = otherAngle + direction * minAngle;
+          }
+        }
+        const radialX = Math.cos(orbit.phase);
+        const radialY = Math.sin(orbit.phase);
+        o.x = orbit.centerX + radialX * currentRadius;
+        o.y = orbit.centerY + radialY * currentRadius;
+        o.vx = radialX * radialSpeed - radialY * currentRadius * orbit.speed;
+        o.vy = radialY * radialSpeed + radialX * currentRadius * orbit.speed;
         o.vr += (o.spin - o.vr) * Math.min(1, dt * 0.8);
         o.rot += o.vr * dt;
         recordObjectSpeed(o);
@@ -2326,26 +2386,57 @@
   updateCamera();
   const dockTop = document.querySelector('.dock').getBoundingClientRect().top;
   spawnPoint = worldPoint(VIEW_W / 2, Math.max(24, dockTop - 36));
-  const orbitCenter = { x: W / 2, y: H / 2 };
-  const orbitRadius = Math.max(76, Math.min(VIEW_W, VIEW_H) * 0.18);
-  [0, Math.PI].forEach((phase, index) => {
-    const angle = phase;
-    const speed = index === 0 ? 0.65 : 0.72;
-    const object = create(
-      orbitCenter.x + Math.cos(angle) * orbitRadius,
-      orbitCenter.y + Math.sin(angle) * orbitRadius,
-      -Math.sin(angle) * orbitRadius * speed,
-      Math.cos(angle) * orbitRadius * speed,
-      0,
-      index === 0 ? 132 : 218,
-      0.9,
-      94,
+  const introObjects = [];
+  function createIntroOrb(phase, speed, hue, arriving = false, radiusOffset = 0) {
+    const orbitCenter = { x: W / 2, y: H / 2 };
+    const orbitRadius = Math.max(76, Math.min(VIEW_W, VIEW_H) * 0.18) + radiusOffset;
+    const startRadius = Math.min(
+      Math.max(VIEW_W, VIEW_H) / (2 * cameraZoom) + 100,
+      Math.min(W, H) / 2 - 100,
     );
+    const initialRadius = arriving ? startRadius : orbitRadius;
+    const object = create(
+      orbitCenter.x + Math.cos(phase) * initialRadius,
+      orbitCenter.y + Math.sin(phase) * initialRadius,
+      -Math.sin(phase) * initialRadius * speed,
+      Math.cos(phase) * initialRadius * speed,
+      0,
+      hue,
+      0.9,
+      arriving ? 72 : 94,
+    );
+    if (!object) return null;
     object.demoOrbit = {
-      centerX: orbitCenter.x, centerY: orbitCenter.y,
-      radius: orbitRadius, phase, speed,
+      centerX: orbitCenter.x, centerY: orbitCenter.y, radius: orbitRadius, phase, speed,
+      arrival: arriving
+        ? { startRadius, startedAt: performance.now(), duration: INTRO_ARRIVAL_DURATION_MS }
+        : null,
     };
-  });
+    introObjects.push(object);
+    return object;
+  }
+
+  createIntroOrb(0, 0.65, 132);
+  createIntroOrb(Math.PI, 0.72, 218);
+  const originalIntroObjects = [...introObjects];
+  setTimeout(() => {
+    if (gameActive || originalIntroObjects.some((object) => !objects.includes(object))) return;
+    const third = createIntroOrb(Math.PI / 2, 0.9, 28, true, 82);
+    if (!third) return;
+    setTimeout(() => {
+      if (gameActive || originalIntroObjects.some((object) => !objects.includes(object))
+        || !objects.includes(third)) return;
+      if (!createIntroOrb(-Math.PI / 2, 0.78, 310, true, 164)) return;
+      setTimeout(() => {
+        [132, 218, 28, 310].forEach((hue, index) => {
+          const object = introObjects[index];
+          if (!objects.includes(object)) return;
+          setObjectColor(object, hue);
+          object.el.classList.add('intro-glow');
+        });
+      }, INTRO_ARRIVAL_DURATION_MS);
+    }, 3000);
+  }, 3000);
 
   seedDistantLights();
   updateGameStats();

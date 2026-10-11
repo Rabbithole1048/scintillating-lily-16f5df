@@ -1,13 +1,13 @@
 # Floatroom
 
-Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces. Spawning is capped at 10 forms by default; **Advanced → Unlimited** opts into the 2,000-form technical limit. It starts with two differently colored orbs circling the room:
+Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces. Spawning is capped at 10 forms by default; **Advanced → Unlimited** opts into the 2,000-form technical limit. Two differently colored orbs start circling the room; a smaller, faster third flies in from outside after three seconds, then a smaller fourth flies in three seconds later. Once it arrives, all four glow in distinct colors:
 
 - **Bring matching forms together** to split them into four smaller forms of the same shape. Different forms bounce apart. Automatic splitting is off by default; when enabled, splitting respects the 10-form limit or the 2,000-form technical limit when Unlimited is active.
 - Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it at the saved spawn point, initially positioned just above the dock. Use **Set spawn point** in the picker to move that point.
 - Use the pencil button to draw a rectangular frame around forms. Forms enclosed by a drawn frame, or dragged and dropped into one, stay inside; free-floating forms cannot enter a frame on their own.
 - **Clear Objects**, **Clear Forces**, and **Clear Frames** independently remove their respective items.
 - **Game** starts a 60-second color-matching challenge: nudge a form into the blinking target, avoid one differently colored stone orbiting it (two from 50 points, three from 90), and build an ongoing combo multiplier. Their orbit speed increases with score. At low scores, game stones stay visible longer and usable orbs spawn more frequently; the orb spawn interval grows with score. From 10 points, rockets cross the room and jostle nearby forms. Each form can split only once per round. Objects bounce at the map edges instead of wrapping, and recurring spawn points pause so you choose when to add more forms. Panning and zooming remain available.
-- **Stats** beside the floating-object count reveals split totals, the fastest object's speed record, mean velocity, a kinetic index, estimated glass area, and the app version (v1.0.0).
+- **Stats** beside the floating-object count reveals split totals, the fastest object's speed record, mean velocity, a kinetic index, estimated glass area, and the app version (v1.1.0).
 - Use the music button beside the floating-object count to start or pause the included looping soundtrack. Music never starts automatically.
 - Pinch forms to resize them. Pinch a force to adjust its influence radius; double-click a force or focus it and press Delete to remove it. Sand, Fire, and Laser make nearby objects glow without damaging them.
 - Use **Magic** to reveal or hide the additional controls; its compact labels and symbols fit the glass dock.
@@ -16,7 +16,7 @@ Floatroom is a full-screen physics playground for 16 floating glass forms and se
 - Controls and gameplay hints stay hidden at startup and appear only when an action needs an explanation.
 - Place **Sand, Water, Air, Fire, Laser, Sunlight,** or **Magnetlight** anywhere in the room to influence motion. Drag a force to move it; select it to pin or release it. Pinch adjusts its influence radius. Sand, Fire, and Laser only make nearby forms glow; Water swirls, Air pushes, and Sunlight/Magnetlight attract.
 - The normal effects preserve one form; the **Clear** button intentionally bypasses that protection. The displayed zero-object goal remains an intentionally locked challenge for regular gameplay.
-- Desktop and mobile layouts are supported; the backdrop shifts color subtly and small distant lights add depth. The Floatroom wordmark uses the same six-orb logo as Forms+, with three orbit speeds.
+- Desktop and mobile layouts are supported. On small screens the map starts zoomed out, with a limited zoom-in range; spawned and dragged objects stay within the reachable map bounds. The backdrop shifts color subtly and small distant lights add depth. The Floatroom wordmark uses the same six-orb logo as Forms+, with three orbit speeds.
 
 ## Tech
 
