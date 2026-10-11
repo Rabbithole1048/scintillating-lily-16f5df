@@ -83,6 +83,7 @@
   const GAME_TARGET = 100;
   const APP_VERSION = '1.1.0';
   const INTRO_ARRIVAL_DURATION_MS = 1800;
+  const INTRO_GROW_DURATION_MS = 3000;
   const GAME_DURATION_MS = 60_000;
   const GAME_RESPAWN_DELAY_MS = 2_000;
   const GAME_BALL_BASE_INTERVAL_MS = 2_200;
@@ -443,7 +444,7 @@
       gameSplitUsed: false,
       density: 0.75 + (formIndex % 5) * 0.13,
       playerNudgedUntil: 0,
-      frame: null, demoOrbit: null,
+      frame: null, demoOrbit: null, introGrowth: null,
       collisionIndex: 0, collisionRadius: 0, collisionCellX: 0, collisionCellY: 0,
     };
 
@@ -1660,6 +1661,10 @@
     dismissHint();
     if (o.pointers.size >= 2) return;
     o.demoOrbit = null;
+    if (o.introGrowth) {
+      o.introGrowth = null;
+      o.target = o.scale;
+    }
     const p = addPointer(o, e);
     o.el.style.zIndex = zTop++;
     lastHeld = o;
@@ -2084,7 +2089,17 @@
       const r = radius(o);
 
       if (o.growing) o.target = Math.min(MAX_SCALE, o.target * (1 + 1.15 * dt));
-      if (o.pointers.size < 2) o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
+      if (o.pointers.size < 2) {
+        if (o.introGrowth && !o.held) {
+          const progress = clamp((t - o.introGrowth.startedAt) / INTRO_GROW_DURATION_MS, 0, 1);
+          const easedProgress = 1 - (1 - progress) ** 3;
+          o.scale = o.introGrowth.startScale
+            + (o.introGrowth.targetScale - o.introGrowth.startScale) * easedProgress;
+          if (progress === 1) o.introGrowth = null;
+        } else if (!o.introGrowth) {
+          o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
+        }
+      }
       clampObjectToMap(o);
 
       if (o.held) continue;
@@ -2402,10 +2417,11 @@
       Math.cos(phase) * initialRadius * speed,
       0,
       hue,
-      0.9,
+      0.34,
       arriving ? 72 : 94,
     );
     if (!object) return null;
+    object.target = object.scale;
     object.demoOrbit = {
       centerX: orbitCenter.x, centerY: orbitCenter.y, radius: orbitRadius, phase, speed,
       arrival: arriving
@@ -2433,6 +2449,12 @@
           if (!objects.includes(object)) return;
           setObjectColor(object, hue);
           object.el.classList.add('intro-glow');
+          object.target = 0.64;
+          object.introGrowth = {
+            startScale: object.scale,
+            targetScale: 0.64,
+            startedAt: performance.now(),
+          };
         });
       }, INTRO_ARRIVAL_DURATION_MS);
     }, 3000);

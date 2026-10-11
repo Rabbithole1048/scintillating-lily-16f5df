@@ -1,6 +1,6 @@
 # Floatroom
 
-Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces. Spawning is capped at 10 forms by default; **Advanced → Unlimited** opts into the 2,000-form technical limit. Two differently colored orbs start circling the room; a smaller, faster third flies in from outside after three seconds, then a smaller fourth flies in three seconds later. Once it arrives, all four glow in distinct colors:
+Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces. Spawning is capped at 10 forms by default; **Advanced → Unlimited** opts into the 2,000-form technical limit. Two small, differently colored orbs start circling the room; a smaller, faster third flies in from outside after three seconds, then a smaller fourth flies in three seconds later. Once it arrives, all four glow in distinct colors and slowly grow to medium-small size:
 
 - **Bring matching forms together** to split them into four smaller forms of the same shape. Different forms bounce apart. Automatic splitting is off by default; when enabled, splitting respects the 10-form limit or the 2,000-form technical limit when Unlimited is active.
 - Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it at the saved spawn point, initially positioned just above the dock. Use **Set spawn point** in the picker to move that point.
