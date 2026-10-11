@@ -125,16 +125,29 @@ html, body {
 }
 .obj:active { cursor: grabbing; }
 .game-stone {
-  position: absolute; z-index: 2147483647; width: 50px; height: 50px; margin: -25px;
+  position: absolute; z-index: 2147483647; width: var(--stone-size, 50px); height: var(--stone-size, 50px);
+  margin: calc(var(--stone-size, 50px) / -2);
   display: grid; place-items: center;
   border: 2px solid rgba(255,255,255,.88); border-radius: 50%;
   background:
     radial-gradient(circle at 34% 27%, rgba(255,255,255,.9), transparent 20%),
     radial-gradient(circle, #f7c85f 0 24%, #e96845 25% 48%, #551d62 70%);
   box-shadow: 0 0 12px rgba(255,189,85,.92), 0 0 32px rgba(255,93,83,.58), inset 0 0 10px rgba(255,255,255,.62);
-  color: #fff8d6; font-size: 22px; text-shadow: 0 0 8px #fff, 0 0 16px #ff982f;
+  color: #fff8d6; font-size: calc(var(--stone-size, 50px) * .44); text-shadow: 0 0 8px #fff, 0 0 16px #ff982f;
   animation: target-stone-pulse 1.5s ease-in-out infinite alternate;
   pointer-events: none;
+}
+.game-trap {
+  position: absolute; z-index: 2147483647; width: 38px; height: 38px; margin: -19px;
+  display: grid; place-items: center; border: 2px solid rgba(255,238,238,.92); border-radius: 50%;
+  background: radial-gradient(circle at 35% 28%, #ffb0a8, #f04452 42%, #781329 82%);
+  box-shadow: 0 0 14px rgba(255,57,76,.85), 0 0 32px rgba(246,37,70,.55), inset 0 0 9px rgba(255,255,255,.55);
+  color: white; font-size: 21px; font-weight: 800; line-height: 1; cursor: pointer;
+  animation: trap-stone-pulse 1s ease-in-out infinite alternate;
+}
+.game-trap:focus-visible { outline: 3px solid white; outline-offset: 3px; }
+@keyframes trap-stone-pulse {
+  to { transform: scale(1.12); box-shadow: 0 0 20px rgba(255,57,76,1), 0 0 40px rgba(246,37,70,.78), inset 0 0 9px rgba(255,255,255,.7); }
 }
 @keyframes target-stone-pulse {
   to { transform: scale(1.12); box-shadow: 0 0 20px rgba(255,189,85,1), 0 0 44px rgba(255,93,83,.82), inset 0 0 10px rgba(255,255,255,.72); }
@@ -369,7 +382,8 @@ body.dense .backdrop { animation: none; }
   position: fixed; z-index: 3;
   top: calc(112px + env(safe-area-inset-top)); left: 50%;
   transform: translateX(-50%);
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 12px;
+  width: max-content; max-width: calc(100vw - 20px);
   padding: 9px 15px; border-radius: 999px;
   font-size: 12px; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap;
 }
@@ -733,6 +747,6 @@ body.help-hidden .hint { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .game-stone, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before, .dvd-object .glass::after { animation: none; }
+  .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .game-stone, .game-trap, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before, .dvd-object .glass::after { animation: none; }
   .backdrop-scene { transition: none; }
 }

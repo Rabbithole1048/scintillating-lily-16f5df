@@ -20,6 +20,8 @@
   const gameScoreEl = document.getElementById('game-score');
   const gamePointsEl = document.getElementById('game-points');
   const gameStonesEl = document.getElementById('game-stones');
+  const gameTimeEl = document.getElementById('game-time');
+  const gameComboEl = document.getElementById('game-combo');
   const helpToggle = document.getElementById('help-toggle');
   const speedBtn = document.getElementById('speed');
   const speedLabel = document.getElementById('speed-label');
@@ -41,6 +43,9 @@
   const WORLD_SCALE = 8;
   const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
+  const GAME_DURATION_MS = 60_000;
+  const GAME_RESPAWN_DELAY_MS = 2_000;
+  const GAME_COMBO_TARGET = 3;
   const MAX_SPLIT_CHILDREN = 4;
   const MAX_FIELDS = 14;
   const MAX_RECURRING_SPAWNERS = 12;
@@ -123,9 +128,17 @@
   let parallaxDepth = 0;
   let parallaxTargetDepth = 0;
   let gameActive = false;
+  let gameFinished = false;
   let gameScore = 0;
   let activatedStones = 0;
   let gameStone = null;
+  const gameTraps = new Set();
+  let gameEndsAt = 0;
+  let gameNextStoneAt = 0;
+  let gameCombo = 0;
+  let gameBonusReady = false;
+  let gameTimeRemaining = GAME_DURATION_MS / 1000;
+  let lastDisplayedGameSecond = -1;
   let fieldHitCycle = { x: 0, y: 0, time: 0, index: 0 };
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -407,12 +420,14 @@
   }
 
   function updateGameScore() {
-    gameScoreEl.hidden = !gameActive && activatedStones < GAME_TARGET;
+    gameScoreEl.hidden = !gameActive && !gameFinished;
     gamePointsEl.textContent = gameScore;
-    gameStonesEl.textContent = `${activatedStones} / ${GAME_TARGET}`;
+    gameStonesEl.textContent = activatedStones;
+    gameTimeEl.textContent = `${Math.ceil(gameTimeRemaining)}s`;
+    gameComboEl.textContent = gameBonusReady ? 'x2 ready' : `${gameCombo} / ${GAME_COMBO_TARGET}`;
     gameBtn.setAttribute('aria-pressed', String(gameActive));
-    gameBtn.setAttribute('aria-label', gameActive ? 'Stop game' : activatedStones >= GAME_TARGET ? 'Play again' : 'Start game');
-    gameLabel.textContent = gameActive ? 'Stop' : activatedStones >= GAME_TARGET ? 'Again' : 'Game';
+    gameBtn.setAttribute('aria-label', gameActive ? 'Stop game' : gameFinished ? 'Play again' : 'Start game');
+    gameLabel.textContent = gameActive ? 'Stop' : gameFinished ? 'Again' : 'Game';
   }
 
   function randomVisiblePoint(margin = Math.min(190, VIEW_H * 0.2)) {
@@ -423,15 +438,53 @@
     return { x: rand(left, Math.max(left, right)), y: rand(top, Math.max(top, bottom)) };
   }
 
-  function createGameStone() {
-    if (gameStone) {
-      gameStone.el.remove();
-      gameStone = null;
+  function removeGameTraps() {
+    for (const trap of gameTraps) trap.el.remove();
+    gameTraps.clear();
+  }
+
+  function createGameTrap() {
+    const el = document.createElement('button');
+    el.className = 'game-trap';
+    el.type = 'button';
+    el.textContent = '!';
+    el.setAttribute('aria-label', 'Trap stone: lose 5 points');
+    let position = randomVisiblePoint(Math.min(190, VIEW_H * 0.2));
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const candidate = randomVisiblePoint(Math.min(190, VIEW_H * 0.2));
+      if (!gameStone || Math.hypot(candidate.x - gameStone.x, candidate.y - gameStone.y)
+        > gameStone.radius + 28) {
+        position = candidate;
+        break;
+      }
     }
+    const trap = { el, x: position.x, y: position.y };
+    el.style.left = `${trap.x}px`;
+    el.style.top = `${trap.y}px`;
+    el.addEventListener('pointerdown', (event) => event.stopPropagation());
+    el.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!gameActive || !gameTraps.delete(trap)) return;
+      el.remove();
+      gameScore -= 5;
+      gameCombo = 0;
+      gameBonusReady = false;
+      updateGameScore();
+      setHint('Trap! 5 points lost, combo broken.');
+    });
+    room.appendChild(el);
+    gameTraps.add(trap);
+  }
+
+  function createGameStone(now = performance.now()) {
+    if (gameStone) gameStone.el.remove();
     const el = document.createElement('div');
     el.className = 'game-stone';
     el.textContent = '◆';
     el.setAttribute('aria-hidden', 'true');
+    const size = Math.max(34, 50 - Math.max(0, gameScore) * 0.16);
+    el.style.setProperty('--stone-size', `${size}px`);
     room.appendChild(el);
 
     let position = randomVisiblePoint();
@@ -446,30 +499,79 @@
         position = candidate;
       }
     }
-    gameStone = { el, x: position.x, y: position.y, radius: 24, penalized: new Set() };
+    const visibleFor = Math.max(900, 3500 - Math.max(0, gameScore) * 25);
+    gameStone = {
+      el, x: position.x, y: position.y, radius: size / 2,
+      penalized: new Set(), expiresAt: now + visibleFor,
+    };
     el.style.left = `${position.x}px`;
     el.style.top = `${position.y}px`;
+    removeGameTraps();
+    if (gameScore >= 50 && Math.random() < 0.24) createGameTrap();
   }
 
   function startGame() {
     gameActive = true;
+    gameFinished = false;
     gameScore = 0;
     activatedStones = 0;
+    gameCombo = 0;
+    gameBonusReady = false;
+    gameEndsAt = performance.now() + GAME_DURATION_MS;
+    gameTimeRemaining = GAME_DURATION_MS / 1000;
+    gameNextStoneAt = 0;
+    lastDisplayedGameSecond = -1;
+    removeGameTraps();
     for (const object of objects) object.playerNudgedUntil = 0;
-    createGameStone();
+    createGameStone(performance.now());
     updateGameScore();
-    setHint('Activate the target with a moving form. Touching it with the form you are dragging costs a point.');
+    setHint('60 seconds: nudge forms into the target. Red trap stones cost 5 points when clicked.');
   }
 
-  function stopGame(won = false) {
+  function stopGame(won = false, timedOut = false) {
     gameActive = false;
+    gameFinished = true;
     if (gameStone) {
       gameStone.el.remove();
       gameStone = null;
     }
+    removeGameTraps();
     updateGameScore();
-    if (won) setHint('You won! 100 stones activated.');
+    if (won) setHint('You won! Exactly 100 points!');
+    else if (timedOut) setHint(`Time is up! Final score: ${gameScore} points.`);
     else setHint('Game stopped. Press Game to start a new round.');
+  }
+
+  function resetGameCombo() {
+    gameCombo = 0;
+    gameBonusReady = false;
+    updateGameScore();
+  }
+
+  function updateGameClock(now) {
+    if (!gameActive) return;
+    if (now >= gameEndsAt) {
+      gameTimeRemaining = 0;
+      stopGame(false, true);
+      return;
+    }
+    gameTimeRemaining = Math.max(0, (gameEndsAt - now) / 1000);
+    const displayedSecond = Math.ceil(gameTimeRemaining);
+    if (displayedSecond !== lastDisplayedGameSecond) {
+      lastDisplayedGameSecond = displayedSecond;
+      updateGameScore();
+    }
+    if (gameStone && now >= gameStone.expiresAt) {
+      gameStone.el.remove();
+      gameStone = null;
+      removeGameTraps();
+      resetGameCombo();
+      gameNextStoneAt = now + GAME_RESPAWN_DELAY_MS;
+      setHint('Target missed — combo reset. Next target in 2 seconds.');
+    } else if (!gameStone && now >= gameNextStoneAt) {
+      createGameStone(now);
+      gameNextStoneAt = 0;
+    }
   }
 
   function penalizeDraggedTargetContact(object) {
@@ -479,6 +581,8 @@
     gameStone.penalized.add(object);
     object.playerNudgedUntil = 0;
     gameScore--;
+    gameCombo = 0;
+    gameBonusReady = false;
     updateGameScore();
     setHint('Penalty: a form you are dragging touched the target. Send another form instead.');
   }
@@ -498,16 +602,32 @@
       }
       if (object.playerNudgedUntil < t) continue;
 
+      const points = gameBonusReady ? 2 : 1;
+      if (gameBonusReady) {
+        gameBonusReady = false;
+        gameCombo = 0;
+      } else {
+        gameCombo++;
+        if (gameCombo >= GAME_COMBO_TARGET) {
+          gameCombo = 0;
+          gameBonusReady = true;
+        }
+      }
       activatedStones++;
-      gameScore++;
+      gameScore = Math.min(GAME_TARGET, gameScore + points);
+      gameEndsAt += 2_000;
+      gameTimeRemaining = (gameEndsAt - t) / 1000;
       updateGameScore();
-      ripple(gameStone.x, gameStone.y, 100);
-      if (activatedStones >= GAME_TARGET) {
+      ripple(gameStone.x, gameStone.y, gameStone.radius * 4);
+      gameStone.el.remove();
+      gameStone = null;
+      removeGameTraps();
+      if (gameScore === GAME_TARGET) {
         stopGame(true);
         return;
       }
-      createGameStone();
-      setHint(`Target activated! ${GAME_TARGET - activatedStones} more to win.`);
+      gameNextStoneAt = t + GAME_RESPAWN_DELAY_MS;
+      setHint(`Target hit! +${points} point${points === 1 ? '' : 's'} — next target in 2 seconds.`);
       return;
     }
   }
@@ -1382,6 +1502,7 @@
   }
 
   document.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.game-trap')) return;
     if (e.target.closest('.dock, .top, .game-stats, .game-score, .hint, .recurring-spawn-point')) return;
     if (cameraPointers.size > 0) {
       e.preventDefault();
@@ -1631,6 +1752,12 @@
       gameStone.el.style.left = `${gameStone.x}px`;
       gameStone.el.style.top = `${gameStone.y}px`;
     }
+    for (const trap of gameTraps) {
+      trap.x *= worldScaleX;
+      trap.y *= worldScaleY;
+      trap.el.style.left = `${trap.x}px`;
+      trap.el.style.top = `${trap.y}px`;
+    }
     if (frameDraw) {
       frameDraw.startX *= worldScaleX;
       frameDraw.startY *= worldScaleY;
@@ -1645,6 +1772,7 @@
     frameCount++;
     const dt = Math.min(0.033, (t - lastT) / 1000) * simulationSpeed;
     lastT = t;
+    updateGameClock(t);
     const parallaxEase = Math.min(1, dt * (cameraPointers.size ? 8 : 2.8));
     parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
@@ -1687,6 +1815,12 @@
     if (gameStone && wrapVisiblePoint(gameStone, visibleBounds, gameStone.radius)) {
       gameStone.el.style.left = `${gameStone.x}px`;
       gameStone.el.style.top = `${gameStone.y}px`;
+    }
+    for (const trap of gameTraps) {
+      if (wrapVisiblePoint(trap, visibleBounds, 20)) {
+        trap.el.style.left = `${trap.x}px`;
+        trap.el.style.top = `${trap.y}px`;
+      }
     }
 
     for (const spawner of recurringSpawners) {
