@@ -1,9 +1,11 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+html { background: #041329; }
 html, body {
   height: 100%;
   height: 100dvh;
   overflow: hidden;
+  background-color: #041329;
   background: linear-gradient(135deg, #071a38, #062b50 52%, #101e49);
   color: #fff;
   font-family: "Space Grotesk", system-ui, sans-serif;
@@ -912,4 +914,43 @@ body.help-hidden .hint { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .backdrop, .blob, .pearl .core, .orbit, .dot, .logo-dot, .field, .game-stone, .distant-light, #more::after, #more svg, #more .button-label, .recurring-spawn-point::before, .dvd-object .glass::after { animation: none; }
   .backdrop-scene { transition: none; }
+}
+
+@supports (-moz-appearance: none) {
+  .backdrop { animation: none; }
+  .backdrop-world { will-change: auto; }
+  :root[data-theme] .backdrop-world { filter: none; }
+  .aura { mix-blend-mode: normal; opacity: .48; }
+  .backdrop-scene {
+    filter: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    transition: opacity .4s ease;
+  }
+  .backdrop-scene.scene-active { filter: none; }
+  .distant-light { animation: none; box-shadow: none; }
+  .glass,
+  .glass-ui,
+  .add::before,
+  .magic-menu,
+  .logo-orbit::after {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .glass { box-shadow: inset 0 0 0 1px rgba(255,255,255,.42); }
+  .glass-ui {
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.62),
+      0 8px 24px -14px rgba(0,0,0,.42);
+  }
+  .blob,
+  .pearl .core,
+  .logo-dot,
+  .dot,
+  .field,
+  .game-stone,
+  .recurring-spawn-point::before,
+  .dvd-object .glass::after { animation: none; }
+  .obj.intro-glow .glass,
+  .obj.force-glow .glass { filter: none; }
 }

@@ -53,7 +53,6 @@
   function updateTheme() {
     const dark = themeMode === 'system' ? systemTheme.matches : themeMode === 'dark';
     const themeName = themeMode === 'system' ? 'System' : themeMode === 'dark' ? 'Dark' : 'Light';
-    const themeColor = dark ? '#071a38' : '#dff4ff';
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
     document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
@@ -64,7 +63,6 @@
       ? '◐'
       : themeMode === 'dark' ? '☾' : '☀';
     themeToggle.querySelector('.button-label').textContent = themeName;
-    document.querySelector('meta[name="theme-color"]').content = themeColor;
   }
 
   updateTheme();
