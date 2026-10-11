@@ -22,18 +22,54 @@
   const gameStonesEl = document.getElementById('game-stones');
   const gameTimeEl = document.getElementById('game-time');
   const gameComboEl = document.getElementById('game-combo');
+  const gameTargetColorEl = document.getElementById('game-target-color');
+  const gameTargetSwatch = document.getElementById('game-target-swatch');
+  const statsToggle = document.getElementById('stats-toggle');
+  const statsPanel = document.getElementById('stats-panel');
+  const statsClose = document.getElementById('stats-close');
+  const roomMusic = document.getElementById('room-music');
+  const musicToggle = document.getElementById('music-toggle');
+  const musicStatus = document.getElementById('music-status');
+  const fastestSpeedEl = document.getElementById('fastest-speed');
+  const meanSpeedEl = document.getElementById('mean-speed');
+  const kineticIndexEl = document.getElementById('kinetic-index');
+  const glassAreaEl = document.getElementById('glass-area');
   const helpToggle = document.getElementById('help-toggle');
   const speedBtn = document.getElementById('speed');
   const speedLabel = document.getElementById('speed-label');
   const hint = document.getElementById('hint');
   const countEl = document.getElementById('count');
-  const splitsEl = document.getElementById('splits');
   const picker = document.getElementById('picker');
   const pickerTitle = document.getElementById('picker-title');
   const pickerOptions = document.getElementById('picker-options');
   const pickerHint = document.getElementById('picker-hint');
   const pickerClose = document.getElementById('picker-close');
   const formClickSuppression = new WeakMap();
+
+  function updateMusicButton() {
+    const playing = !roomMusic.paused;
+    musicToggle.setAttribute('aria-pressed', String(playing));
+    musicToggle.setAttribute('aria-label', playing ? 'Pause music' : 'Play music');
+    musicToggle.title = playing ? 'Pause music' : 'Play music';
+  }
+
+  function playRoomMusic() {
+    musicStatus.textContent = '';
+    roomMusic.play().then(() => {
+      updateMusicButton();
+    }).catch((error) => {
+      updateMusicButton();
+      if (error.name === 'NotAllowedError') {
+        musicStatus.textContent = 'Music playback was blocked. Press the music button to try again.';
+        return;
+      }
+      musicStatus.textContent = 'Music could not be played. Check the audio file or browser playback settings.';
+      console.error('Unable to play room music.', error);
+    });
+  }
+
+  roomMusic.addEventListener('play', updateMusicButton);
+  roomMusic.addEventListener('pause', updateMusicButton);
 
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
@@ -45,7 +81,6 @@
   const GAME_TARGET = 100;
   const GAME_DURATION_MS = 60_000;
   const GAME_RESPAWN_DELAY_MS = 2_000;
-  const GAME_COMBO_TARGET = 3;
   const MAX_SPLIT_CHILDREN = 4;
   const MAX_FIELDS = 14;
   const MAX_RECURRING_SPAWNERS = 12;
@@ -70,7 +105,7 @@
       { id: 'sand', name: 'Sand', icon: '⠿', color: '#e5b36e' },
       { id: 'water', name: 'Water', icon: '◉', color: '#55c9f4' },
       { id: 'air', name: 'Air', icon: '≋', color: '#d8e7ff' },
-      { id: 'fire', name: 'Fire', icon: '♨', color: '#ff704e' },
+      { id: 'fire', name: 'Fire', icon: '🔥', color: '#ff704e' },
     ],
     light: [
       { id: 'laser', name: 'Laser', icon: '⌁', color: '#ff405f' },
@@ -84,6 +119,19 @@
       { id: 'ice', name: 'Ice', icon: '❄', color: '#9ceaff' },
     ],
   };
+  const GAME_COLORS = [
+    { name: 'Green', hex: '#45f28a' },
+    { name: 'Blue', hex: '#43b9ff' },
+    { name: 'Pink', hex: '#ff58b7' },
+    { name: 'Orange', hex: '#ff9c42' },
+    { name: 'Violet', hex: '#b36cff' },
+    { name: 'Yellow', hex: '#ffe34f' },
+    { name: 'Cyan', hex: '#40f2e2' },
+    { name: 'Red', hex: '#ff4e64' },
+    { name: 'Lime', hex: '#b7f542' },
+    { name: 'Rose', hex: '#ff7892' },
+    { name: 'Indigo', hex: '#7187ff' },
+  ];
 
   const objects = [];
   const fields = [];
@@ -110,6 +158,7 @@
   let choosingSpawnPoint = false;
   let choosingRecurringSpawn = false;
   let spawnPoint = { x: W / 2, y: H / 2 };
+  let spawnPointCustom = false;
   let spawnMarker = null;
   let sizeMode = 'random';
   let colorMode = 'random';
@@ -131,14 +180,16 @@
   let gameFinished = false;
   let gameScore = 0;
   let activatedStones = 0;
-  let gameStone = null;
-  const gameTraps = new Set();
+  const gameStones = new Set();
+  let gameTargetColor = null;
+  let gameStoneExpiresAt = 0;
   let gameEndsAt = 0;
   let gameNextStoneAt = 0;
   let gameCombo = 0;
-  let gameBonusReady = false;
   let gameTimeRemaining = GAME_DURATION_MS / 1000;
   let lastDisplayedGameSecond = -1;
+  let fastestObjectSpeed = 0;
+  let lastStatsUpdate = 0;
   let fieldHitCycle = { x: 0, y: 0, time: 0, index: 0 };
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -297,7 +348,7 @@
   }
 
   function onMapWheel(e) {
-    if (e.target.closest('.obj, .dock, .top, .game-stats, .game-score, .hint')) return;
+    if (e.target.closest('.obj, .dock, .top, .stats-panel, .game-score, .hint')) return;
     e.preventDefault();
     zoomAt(Math.exp(-e.deltaY * 0.001));
   }
@@ -354,7 +405,7 @@
       splitAfter: performance.now() + 850,
       density: 0.75 + (formIndex % 5) * 0.13,
       playerNudgedUntil: 0,
-      frame: null,
+      frame: null, demoOrbit: null,
       collisionIndex: 0, collisionRadius: 0, collisionCellX: 0, collisionCellY: 0,
     };
 
@@ -387,7 +438,7 @@
     clearTimeout(o.timer);
     for (const pointerId of o.pointers.keys()) pointerOwner.delete(pointerId);
     o.pointers.clear();
-    gameStone?.penalized.delete(o);
+    for (const stone of gameStones) stone.penalized.delete(o);
     o.held = false;
     if (lastHeld === o) lastHeld = null;
     if (immediate) {
@@ -413,10 +464,14 @@
   }
 
   function updateGameStats() {
-    splitsEl.textContent = splits;
+    document.getElementById('splits').textContent = splits;
     if (objects.length === 1 && splits > 0) {
       showLastObjectNotice();
     }
+  }
+
+  function gameMultiplier() {
+    return 1 + Math.floor(gameCombo / 3);
   }
 
   function updateGameScore() {
@@ -424,10 +479,37 @@
     gamePointsEl.textContent = gameScore;
     gameStonesEl.textContent = activatedStones;
     gameTimeEl.textContent = `${Math.ceil(gameTimeRemaining)}s`;
-    gameComboEl.textContent = gameBonusReady ? 'x2 ready' : `${gameCombo} / ${GAME_COMBO_TARGET}`;
+    gameComboEl.textContent = `x${gameMultiplier()} (${gameCombo})`;
+    gameTargetColorEl.textContent = gameTargetColor ?? '—';
+    gameTargetSwatch.style.setProperty('--target-color', gameStones.size
+      ? [...gameStones].find((stone) => stone.isTarget)?.color.hex ?? '#fff'
+      : '#fff');
     gameBtn.setAttribute('aria-pressed', String(gameActive));
     gameBtn.setAttribute('aria-label', gameActive ? 'Stop game' : gameFinished ? 'Play again' : 'Start game');
     gameLabel.textContent = gameActive ? 'Stop' : gameFinished ? 'Again' : 'Game';
+  }
+
+  function updateRoomStats(now = performance.now(), force = false) {
+    if (!force && now - lastStatsUpdate < 500) return;
+    lastStatsUpdate = now;
+    let totalSpeed = 0;
+    let kineticIndex = 0;
+    let glassArea = 0;
+    for (const object of objects) {
+      const speed = Math.hypot(object.vx, object.vy);
+      fastestObjectSpeed = Math.max(fastestObjectSpeed, speed);
+      totalSpeed += speed;
+      kineticIndex += 0.5 * radius(object) ** 2 * speed ** 2;
+      glassArea += Math.PI * radius(object) ** 2;
+    }
+    fastestSpeedEl.textContent = `${Math.round(fastestObjectSpeed)} px/s`;
+    meanSpeedEl.textContent = `${Math.round(totalSpeed / Math.max(objects.length, 1))} px/s`;
+    kineticIndexEl.textContent = Math.round(kineticIndex).toLocaleString();
+    glassAreaEl.textContent = `${Math.round(glassArea).toLocaleString()} px²`;
+  }
+
+  function recordObjectSpeed(object) {
+    fastestObjectSpeed = Math.max(fastestObjectSpeed, Math.hypot(object.vx, object.vy));
   }
 
   function randomVisiblePoint(margin = Math.min(190, VIEW_H * 0.2)) {
@@ -438,104 +520,103 @@
     return { x: rand(left, Math.max(left, right)), y: rand(top, Math.max(top, bottom)) };
   }
 
-  function removeGameTraps() {
-    for (const trap of gameTraps) trap.el.remove();
-    gameTraps.clear();
-  }
-
-  function createGameTrap() {
-    const el = document.createElement('button');
-    el.className = 'game-trap';
-    el.type = 'button';
-    el.textContent = '!';
-    el.setAttribute('aria-label', 'Trap stone: lose 5 points');
-    let position = randomVisiblePoint(Math.min(190, VIEW_H * 0.2));
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const candidate = randomVisiblePoint(Math.min(190, VIEW_H * 0.2));
-      if (!gameStone || Math.hypot(candidate.x - gameStone.x, candidate.y - gameStone.y)
-        > gameStone.radius + 28) {
-        position = candidate;
-        break;
-      }
-    }
-    const trap = { el, x: position.x, y: position.y };
-    el.style.left = `${trap.x}px`;
-    el.style.top = `${trap.y}px`;
-    el.addEventListener('pointerdown', (event) => event.stopPropagation());
-    el.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (!gameActive || !gameTraps.delete(trap)) return;
-      el.remove();
-      gameScore -= 5;
-      gameCombo = 0;
-      gameBonusReady = false;
-      updateGameScore();
-      setHint('Trap! 5 points lost, combo broken.');
-    });
-    room.appendChild(el);
-    gameTraps.add(trap);
+  function clearGameStones() {
+    for (const stone of gameStones) stone.el.remove();
+    gameStones.clear();
+    gameTargetColor = null;
   }
 
   function createGameStone(now = performance.now()) {
-    if (gameStone) gameStone.el.remove();
-    const el = document.createElement('div');
-    el.className = 'game-stone';
-    el.textContent = '◆';
-    el.setAttribute('aria-hidden', 'true');
-    const size = Math.max(34, 50 - Math.max(0, gameScore) * 0.16);
-    el.style.setProperty('--stone-size', `${size}px`);
-    room.appendChild(el);
-
-    let position = randomVisiblePoint();
+    clearGameStones();
+    const size = Math.max(36, 50 - Math.max(0, gameScore) * 0.12);
+    const targetColor = GAME_COLORS[Math.floor(rand(0, GAME_COLORS.length))];
+    gameTargetColor = targetColor.name;
+    const decoyCount = Math.min(10, 1 + Math.floor(Math.max(0, gameScore) / 10));
+    const decoyColors = GAME_COLORS.filter((color) => color !== targetColor);
+    const innerRadius = size * 1.55;
+    const outerRadius = size * 2.65;
+    const clusterMargin = Math.max(20, Math.min(
+      decoyCount > 4 ? outerRadius + size * 0.41 : innerRadius + size * 0.41,
+      VIEW_W / 2 - 20,
+      VIEW_H / 2 - 20,
+    ));
+    const positions = [randomVisiblePoint(clusterMargin)];
+    for (let index = 0; index < decoyCount; index++) {
+      const angle = index < 4
+        ? -Math.PI / 2 + index * Math.PI / 2
+        : -Math.PI / 2 + (index - 4) * TAU / Math.max(1, decoyCount - 4);
+      const distance = index < 4 ? innerRadius : outerRadius;
+      positions.push({
+        x: positions[0].x + Math.cos(angle) * distance,
+        y: positions[0].y + Math.sin(angle) * distance,
+      });
+    }
     let greatestClearance = -1;
-    for (let attempt = 0; attempt < 32; attempt++) {
-      const candidate = randomVisiblePoint();
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const candidate = randomVisiblePoint(clusterMargin);
       const clearance = objects.reduce((closest, object) => (
         Math.min(closest, Math.hypot(candidate.x - object.x, candidate.y - object.y) - radius(object))
       ), Infinity);
       if (clearance > greatestClearance) {
         greatestClearance = clearance;
-        position = candidate;
+        positions[0] = candidate;
       }
     }
-    const visibleFor = Math.max(900, 3500 - Math.max(0, gameScore) * 25);
-    gameStone = {
-      el, x: position.x, y: position.y, radius: size / 2,
-      penalized: new Set(), expiresAt: now + visibleFor,
-    };
-    el.style.left = `${position.x}px`;
-    el.style.top = `${position.y}px`;
-    removeGameTraps();
-    if (gameScore >= 50 && Math.random() < 0.24) createGameTrap();
+    for (let index = 1; index < positions.length; index++) {
+      const angle = index <= 4
+        ? -Math.PI / 2 + (index - 1) * Math.PI / 2
+        : -Math.PI / 2 + (index - 5) * TAU / Math.max(1, decoyCount - 4);
+      const distance = index <= 4 ? innerRadius : outerRadius;
+      positions[index] = {
+        x: positions[0].x + Math.cos(angle) * distance,
+        y: positions[0].y + Math.sin(angle) * distance,
+      };
+    }
+    const visibleFor = Math.max(1800, 4000 - Math.max(0, gameScore) * 15);
+    gameStoneExpiresAt = now + visibleFor;
+    positions.forEach((position, index) => {
+      const isTarget = index === 0;
+      const color = isTarget ? targetColor : decoyColors[(index - 1) % decoyColors.length];
+      const stoneSize = isTarget ? size : size * 0.82;
+      const el = document.createElement('div');
+      el.className = `game-stone${isTarget ? ' is-target' : ''}`;
+      el.textContent = '◆';
+      el.setAttribute('aria-hidden', 'true');
+      el.style.setProperty('--stone-size', `${stoneSize}px`);
+      el.style.setProperty('--stone-color', color.hex);
+      el.style.left = `${position.x}px`;
+      el.style.top = `${position.y}px`;
+      room.appendChild(el);
+      gameStones.add({
+        el, x: position.x, y: position.y, radius: stoneSize / 2,
+        color, isTarget, penalized: new Set(),
+      });
+    });
+    updateGameScore();
   }
 
   function startGame() {
     gameActive = true;
     gameFinished = false;
+    statsPanel.hidden = true;
+    statsToggle.setAttribute('aria-expanded', 'false');
     gameScore = 0;
     activatedStones = 0;
     gameCombo = 0;
-    gameBonusReady = false;
     gameEndsAt = performance.now() + GAME_DURATION_MS;
     gameTimeRemaining = GAME_DURATION_MS / 1000;
     gameNextStoneAt = 0;
     lastDisplayedGameSecond = -1;
-    removeGameTraps();
     for (const object of objects) object.playerNudgedUntil = 0;
     createGameStone(performance.now());
     updateGameScore();
-    setHint('60 seconds: nudge forms into the target. Red trap stones cost 5 points when clicked.');
+    setHint('60 seconds: nudge a form into the shown color. Hit a different color and lose points.');
   }
 
   function stopGame(won = false, timedOut = false) {
     gameActive = false;
     gameFinished = true;
-    if (gameStone) {
-      gameStone.el.remove();
-      gameStone = null;
-    }
-    removeGameTraps();
+    clearGameStones();
     updateGameScore();
     if (won) setHint('You won! Exactly 100 points!');
     else if (timedOut) setHint(`Time is up! Final score: ${gameScore} points.`);
@@ -544,7 +625,6 @@
 
   function resetGameCombo() {
     gameCombo = 0;
-    gameBonusReady = false;
     updateGameScore();
   }
 
@@ -561,73 +641,55 @@
       lastDisplayedGameSecond = displayedSecond;
       updateGameScore();
     }
-    if (gameStone && now >= gameStone.expiresAt) {
-      gameStone.el.remove();
-      gameStone = null;
-      removeGameTraps();
+    if (gameStones.size && now >= gameStoneExpiresAt) {
+      clearGameStones();
       resetGameCombo();
       gameNextStoneAt = now + GAME_RESPAWN_DELAY_MS;
       setHint('Target missed — combo reset. Next target in 2 seconds.');
-    } else if (!gameStone && now >= gameNextStoneAt) {
+    } else if (!gameStones.size && now >= gameNextStoneAt) {
       createGameStone(now);
       gameNextStoneAt = 0;
     }
   }
 
-  function penalizeDraggedTargetContact(object) {
-    if (!gameActive || !gameStone
-      || Math.hypot(object.x - gameStone.x, object.y - gameStone.y) >= radius(object) + gameStone.radius
-      || gameStone.penalized.has(object)) return;
-    gameStone.penalized.add(object);
-    object.playerNudgedUntil = 0;
-    gameScore--;
-    gameCombo = 0;
-    gameBonusReady = false;
-    updateGameScore();
-    setHint('Penalty: a form you are dragging touched the target. Send another form instead.');
-  }
-
   function updateGameCollisions(t) {
-    if (!gameActive || !gameStone) return;
+    if (!gameActive || !gameStones.size) return;
     for (const object of objects) {
-      const touching = Math.hypot(object.x - gameStone.x, object.y - gameStone.y)
-        < radius(object) + gameStone.radius;
-      if (!touching) {
-        gameStone.penalized.delete(object);
+      const touchingStone = [...gameStones].find((stone) => (
+        Math.hypot(object.x - stone.x, object.y - stone.y) < radius(object) + stone.radius
+      ));
+      if (!touchingStone) {
+        for (const stone of gameStones) stone.penalized.delete(object);
         continue;
       }
-      if (object.held) {
-        penalizeDraggedTargetContact(object);
-        continue;
+      if (object.held || object.playerNudgedUntil < t || touchingStone.penalized.has(object)) continue;
+      touchingStone.penalized.add(object);
+      object.playerNudgedUntil = 0;
+      if (!touchingStone.isTarget) {
+        gameScore -= 2;
+        resetGameCombo();
+        clearGameStones();
+        updateGameScore();
+        gameNextStoneAt = t + GAME_RESPAWN_DELAY_MS;
+        setHint('Wrong color! 2 points lost and combo reset.');
+        return;
       }
-      if (object.playerNudgedUntil < t) continue;
-
-      const points = gameBonusReady ? 2 : 1;
-      if (gameBonusReady) {
-        gameBonusReady = false;
-        gameCombo = 0;
-      } else {
-        gameCombo++;
-        if (gameCombo >= GAME_COMBO_TARGET) {
-          gameCombo = 0;
-          gameBonusReady = true;
-        }
-      }
+      gameCombo++;
+      const points = gameMultiplier();
       activatedStones++;
       gameScore = Math.min(GAME_TARGET, gameScore + points);
       gameEndsAt += 2_000;
       gameTimeRemaining = (gameEndsAt - t) / 1000;
       updateGameScore();
-      ripple(gameStone.x, gameStone.y, gameStone.radius * 4);
-      gameStone.el.remove();
-      gameStone = null;
-      removeGameTraps();
+      ripple(touchingStone.x, touchingStone.y, touchingStone.radius * 4);
+      clearGameStones();
+      updateGameScore();
       if (gameScore === GAME_TARGET) {
         stopGame(true);
         return;
       }
       gameNextStoneAt = t + GAME_RESPAWN_DELAY_MS;
-      setHint(`Target hit! +${points} point${points === 1 ? '' : 's'} — next target in 2 seconds.`);
+      setHint(`Correct color! +${points} point${points === 1 ? '' : 's'} (x${gameMultiplier()} combo).`);
       return;
     }
   }
@@ -906,6 +968,7 @@
       x: clamp(point.x, 24, W - 24),
       y: clamp(point.y, 24, H - 24),
     };
+    spawnPointCustom = true;
     choosingSpawnPoint = false;
     room.classList.remove('choosing-spawn');
     updateSpawnMarker();
@@ -1426,6 +1489,7 @@
     e.stopPropagation();
     dismissHint();
     if (o.pointers.size >= 2) return;
+    o.demoOrbit = null;
     const p = addPointer(o, e);
     o.el.style.zIndex = zTop++;
     lastHeld = o;
@@ -1459,7 +1523,6 @@
       point = { x: pointer.x, y: pointer.y };
       object.pointers.delete(pointerId);
       pointerOwner.delete(pointerId);
-      penalizeDraggedTargetContact(object);
       object.held = false;
       stopGrow(object);
     } else {
@@ -1502,8 +1565,7 @@
   }
 
   document.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.game-trap')) return;
-    if (e.target.closest('.dock, .top, .game-stats, .game-score, .hint, .recurring-spawn-point')) return;
+    if (e.target.closest('.dock, .top, .stats-panel, .game-score, .hint, .recurring-spawn-point')) return;
     if (cameraPointers.size > 0) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -1598,7 +1660,6 @@
     }
     if (o.pointers.size > 0) return;
 
-    penalizeDraggedTargetContact(o);
     o.held = false;
     const wasGrowing = o.grew;
     stopGrow(o);
@@ -1632,6 +1693,7 @@
       o.vy = clamp(o.vy, -2200, 2200);
       o.vr = clamp(o.vx * 0.12, -360, 360);
     }
+    recordObjectSpeed(o);
     if (wasGrowing) ripple(o.x, o.y, radius(o) * 2.2);
   }
   addEventListener('pointerup', onUp);
@@ -1658,9 +1720,24 @@
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
   phenomenaBtn.addEventListener('click', () => openPicker('phenomena'));
+  musicToggle.addEventListener('click', () => {
+    if (roomMusic.paused) playRoomMusic();
+    else roomMusic.pause();
+  });
   gameBtn.addEventListener('click', () => {
     if (gameActive) stopGame();
     else startGame();
+  });
+  statsToggle.addEventListener('click', () => {
+    const isOpen = statsPanel.hidden;
+    statsPanel.hidden = !isOpen;
+    statsToggle.setAttribute('aria-expanded', String(isOpen));
+    updateRoomStats(performance.now(), true);
+  });
+  statsClose.addEventListener('click', () => {
+    statsPanel.hidden = true;
+    statsToggle.setAttribute('aria-expanded', 'false');
+    statsToggle.focus();
   });
   helpToggle.addEventListener('click', () => {
     const hidden = document.body.classList.toggle('help-hidden');
@@ -1730,6 +1807,11 @@
     for (const o of objects) {
       o.x *= worldScaleX;
       o.y *= worldScaleY;
+      if (o.demoOrbit) {
+        o.demoOrbit.centerX *= worldScaleX;
+        o.demoOrbit.centerY *= worldScaleY;
+        o.demoOrbit.radius *= Math.sqrt(worldScaleX * worldScaleY);
+      }
     }
     for (const field of fields) {
       field.x *= worldScaleX;
@@ -1746,23 +1828,22 @@
       frame.el.style.width = `${frame.width}px`;
       frame.el.style.height = `${frame.height}px`;
     }
-    if (gameStone) {
-      gameStone.x *= worldScaleX;
-      gameStone.y *= worldScaleY;
-      gameStone.el.style.left = `${gameStone.x}px`;
-      gameStone.el.style.top = `${gameStone.y}px`;
-    }
-    for (const trap of gameTraps) {
-      trap.x *= worldScaleX;
-      trap.y *= worldScaleY;
-      trap.el.style.left = `${trap.x}px`;
-      trap.el.style.top = `${trap.y}px`;
+    for (const stone of gameStones) {
+      stone.x *= worldScaleX;
+      stone.y *= worldScaleY;
+      stone.el.style.left = `${stone.x}px`;
+      stone.el.style.top = `${stone.y}px`;
     }
     if (frameDraw) {
       frameDraw.startX *= worldScaleX;
       frameDraw.startY *= worldScaleY;
     }
     updateCamera();
+    if (!spawnPointCustom) {
+      const dockTop = document.querySelector('.dock').getBoundingClientRect().top;
+      spawnPoint = worldPoint(VIEW_W / 2, Math.max(24, dockTop - 36));
+      if (spawnMarker) updateSpawnMarker();
+    }
   });
 
   // ---------- simulation ----------
@@ -1783,48 +1864,39 @@
     const visibleWidth = visibleBounds.right - visibleBounds.left;
     const visibleHeight = visibleBounds.bottom - visibleBounds.top;
 
-    if (wrapVisiblePoint(spawnPoint, visibleBounds, 24) && spawnMarker) updateSpawnMarker();
+    if (!gameActive && wrapVisiblePoint(spawnPoint, visibleBounds, 24) && spawnMarker) updateSpawnMarker();
     for (const field of fields) {
-      if (field.pointers.size === 0 && wrapVisiblePoint(field, visibleBounds, field.radius)) {
+      if (!gameActive && field.pointers.size === 0 && wrapVisiblePoint(field, visibleBounds, field.radius)) {
         updateFieldElement(field);
       }
     }
     for (const spawner of recurringSpawners) {
-      if (wrapVisiblePoint(spawner, visibleBounds, 24)) {
+      if (!gameActive && wrapVisiblePoint(spawner, visibleBounds, 24)) {
         spawner.el.style.left = `${spawner.x}px`;
         spawner.el.style.top = `${spawner.y}px`;
       }
     }
-    for (const frame of frames) {
-      let moved = false;
-      if (frame.x + frame.width < visibleBounds.left || frame.x > visibleBounds.right) {
-        frame.x = visibleBounds.left - frame.width
-          + wrap(frame.x - visibleBounds.left + frame.width, visibleBounds.right - visibleBounds.left + frame.width);
-        moved = true;
-      }
-      if (frame.y + frame.height < visibleBounds.top || frame.y > visibleBounds.bottom) {
-        frame.y = visibleBounds.top - frame.height
-          + wrap(frame.y - visibleBounds.top + frame.height, visibleBounds.bottom - visibleBounds.top + frame.height);
-        moved = true;
-      }
-      if (moved) {
-        frame.el.style.left = `${frame.x}px`;
-        frame.el.style.top = `${frame.y}px`;
-      }
-    }
-    if (gameStone && wrapVisiblePoint(gameStone, visibleBounds, gameStone.radius)) {
-      gameStone.el.style.left = `${gameStone.x}px`;
-      gameStone.el.style.top = `${gameStone.y}px`;
-    }
-    for (const trap of gameTraps) {
-      if (wrapVisiblePoint(trap, visibleBounds, 20)) {
-        trap.el.style.left = `${trap.x}px`;
-        trap.el.style.top = `${trap.y}px`;
+    if (!gameActive) {
+      for (const frame of frames) {
+        let moved = false;
+        if (frame.x + frame.width < visibleBounds.left || frame.x > visibleBounds.right) {
+          frame.x = visibleBounds.left - frame.width
+            + wrap(frame.x - visibleBounds.left + frame.width, visibleBounds.right - visibleBounds.left + frame.width);
+          moved = true;
+        }
+        if (frame.y + frame.height < visibleBounds.top || frame.y > visibleBounds.bottom) {
+          frame.y = visibleBounds.top - frame.height
+            + wrap(frame.y - visibleBounds.top + frame.height, visibleBounds.bottom - visibleBounds.top + frame.height);
+          moved = true;
+        }
+        if (moved) {
+          frame.el.style.left = `${frame.x}px`;
+          frame.el.style.top = `${frame.y}px`;
+        }
       }
     }
-
     for (const spawner of recurringSpawners) {
-      if (spawner.paused || t < spawner.nextSpawnAt) continue;
+      if (gameActive || spawner.paused || t < spawner.nextSpawnAt) continue;
       spawner.nextSpawnAt = t + RECURRING_SPAWN_INTERVAL;
       spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
     }
@@ -1837,6 +1909,18 @@
       if (o.pointers.size < 2) o.scale += (o.target - o.scale) * Math.min(1, dt * 10);
 
       if (o.held) continue;
+      if (o.demoOrbit) {
+        const orbit = o.demoOrbit;
+        orbit.phase += dt * orbit.speed;
+        o.x = orbit.centerX + Math.cos(orbit.phase) * orbit.radius;
+        o.y = orbit.centerY + Math.sin(orbit.phase) * orbit.radius;
+        o.vx = -Math.sin(orbit.phase) * orbit.radius * orbit.speed;
+        o.vy = Math.cos(orbit.phase) * orbit.radius * orbit.speed;
+        o.vr += (o.spin - o.vr) * Math.min(1, dt * 0.8);
+        o.rot += o.vr * dt;
+        recordObjectSpeed(o);
+        continue;
+      }
       if (!applyFields(o, dt, t)) continue;
 
       const n = t * 0.0004 + o.seed;
@@ -1865,6 +1949,11 @@
 
       if (o.frame && frames.includes(o.frame)) {
         keepInsideFrame(o, r);
+      } else if (gameActive) {
+        if (o.x < r) { o.x = r; o.vx = Math.abs(o.vx) * 0.72; }
+        else if (o.x > W - r) { o.x = W - r; o.vx = -Math.abs(o.vx) * 0.72; }
+        if (o.y < r) { o.y = r; o.vy = Math.abs(o.vy) * 0.72; }
+        else if (o.y > H - r) { o.y = H - r; o.vy = -Math.abs(o.vy) * 0.72; }
       } else {
         if (visibleWidth > 2 * (r + wrapGap)) {
           if (o.x < visibleBounds.left - r - wrapGap) o.x += visibleWidth + 2 * (r + wrapGap);
@@ -1885,10 +1974,12 @@
       }
       o.vr += (o.spin - o.vr) * Math.min(1, dt * 0.8);
       o.rot += o.vr * dt;
+      recordObjectSpeed(o);
     }
 
     if (objects.length <= HIGH_DENSITY_THRESHOLD || frameCount % 2 === 0) collide(t);
     updateGameCollisions(t);
+    updateRoomStats(t);
 
     for (let i = 0; i < objects.length; i++) {
       const o = objects[i];
@@ -2063,28 +2154,32 @@
 
   // ---------- first fill of the room ----------
   updateCamera();
-  const startCount = VIEW_W < 600 ? 7 : 11;
-  const columns = VIEW_W < 600 ? 3 : Math.max(3, Math.floor(Math.sqrt(startCount * VIEW_W / VIEW_H)));
-  const rows = Math.ceil(startCount / columns);
-  const marginX = Math.min(130, VIEW_W * 0.12);
-  const left = W / 2 - VIEW_W / 2 + marginX;
-  const top = H / 2 - Math.min(145, VIEW_H * 0.18);
-  const bottom = H / 2 + Math.max(100, VIEW_H * 0.18);
-  const cellWidth = (VIEW_W - marginX * 2) / columns;
-  const cellHeight = (bottom - top) / rows;
-  Array.from({ length: startCount }, (_, index) => index % SHAPES.length).forEach((tier, index) => {
-    const a = Math.random() * TAU;
-    const s = rand(50, 110);
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    const jitterX = Math.min(22, cellWidth * 0.12);
-    const jitterY = Math.min(22, cellHeight * 0.12);
-    const x = left + (column + 0.5) * cellWidth + rand(-jitterX, jitterX);
-    const y = top + (row + 0.5) * cellHeight + rand(-jitterY, jitterY);
-    create(x, y, Math.cos(a) * s, Math.sin(a) * s, tier, undefined, 0.9);
+  const dockTop = document.querySelector('.dock').getBoundingClientRect().top;
+  spawnPoint = worldPoint(VIEW_W / 2, Math.max(24, dockTop - 36));
+  const orbitCenter = { x: W / 2, y: H / 2 };
+  const orbitRadius = Math.max(76, Math.min(VIEW_W, VIEW_H) * 0.18);
+  [0, Math.PI].forEach((phase, index) => {
+    const angle = phase;
+    const speed = index === 0 ? 0.65 : 0.72;
+    const object = create(
+      orbitCenter.x + Math.cos(angle) * orbitRadius,
+      orbitCenter.y + Math.sin(angle) * orbitRadius,
+      -Math.sin(angle) * orbitRadius * speed,
+      Math.cos(angle) * orbitRadius * speed,
+      0,
+      index === 0 ? 132 : 218,
+      0.9,
+      94,
+    );
+    object.demoOrbit = {
+      centerX: orbitCenter.x, centerY: orbitCenter.y,
+      radius: orbitRadius, phase, speed,
+    };
   });
 
   seedDistantLights();
   updateGameStats();
+  updateRoomStats(performance.now(), true);
+  playRoomMusic();
   requestAnimationFrame(frame);
 })();

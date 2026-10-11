@@ -1,13 +1,16 @@
 # Floatroom
 
-Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces, with up to 1,000 forms on screen:
+Floatroom is a full-screen physics playground for 16 floating glass forms and seven placeable forces, with up to 2,000 forms on screen. It starts with two differently colored orbs circling the room:
 
 - **Bring matching forms together** to split them into four smaller forms of the same shape. Different forms bounce apart. Splitting can continue until the 1,000-form limit is reached.
-- Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it at the saved spawn point. Use **Set spawn point** in the picker to move that point.
+- Keep the **Forms+** picker open while dragging forms onto the room; tap a form in the picker to add it at the saved spawn point, initially positioned just above the dock. Use **Set spawn point** in the picker to move that point.
 - Use the pencil button to draw a rectangular frame around forms. Forms enclosed by a drawn frame, or dragged and dropped into one, stay inside; free-floating forms cannot enter a frame on their own.
 - **Clear Objects**, **Clear Forces**, and **Clear Frames** independently remove their respective items.
+- **Game** starts a 60-second color-matching challenge: nudge a form into the color shown, avoid up to ten differently colored decoys, and build an ongoing combo multiplier. In game mode, objects bounce at the map edges instead of wrapping, and recurring spawn points pause so you choose when to add more forms. Panning and zooming remain available.
+- **Stats** beside the floating-object count reveals split totals, the fastest object's speed record, mean velocity, a kinetic index, and estimated glass area.
+- Use the music button beside the floating-object count to play or pause the included looping soundtrack. Browsers that block autoplay start it on the first button press.
 - Pinch forms to resize them. Pinch a force to adjust its influence radius; double-click a force or focus it and press Delete to remove it. Sand, Fire, and Laser make nearby objects glow without damaging them.
-- Use **Magic** to reveal or hide the additional controls; button captions remain visible in the compact dock.
+- Use **Magic** to reveal or hide the additional controls; its compact labels and symbols fit the glass dock.
 - Drag an empty part of the room to pan the map. Pinch with two fingers or use the mouse wheel/trackpad to zoom around the fixed center of the screen; dragging forms and forces still moves only those items. The backdrop stays full-screen and shifts subtly with camera movement to create parallax.
 - **Advanced** applies size 1, 2, 3, or random sizes to current and future forms, changes their colors, selects a softly fading glass background, explodes a random form, or places recurring spawn points. Each active point creates a random form every 1.8 seconds; click a point to pause/resume it, or double-click/press Delete to remove it. Clear Objects also removes recurring spawners.
 - Controls and gameplay hints stay hidden at startup and appear only when an action needs an explanation.
