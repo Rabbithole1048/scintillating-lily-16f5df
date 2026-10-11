@@ -75,12 +75,13 @@
   const MIN_SCALE = 0.35;
   const MAX_SCALE = 3.2;
   const MAX_OBJECTS = 2000;
+  const DEFAULT_OBJECT_LIMIT = 10;
   const HIGH_DENSITY_THRESHOLD = 800;
   const MAX_COLLISION_PAIRS_PER_FRAME = 16000;
   const WORLD_SCALE = 8;
   const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.1.0';
   const GAME_DURATION_MS = 60_000;
   const GAME_RESPAWN_DELAY_MS = 2_000;
   const GAME_BALL_BASE_INTERVAL_MS = 2_200;
@@ -153,6 +154,8 @@
   let H = Math.ceil(VIEW_H * WORLD_SCALE / WORLD_TILE_SIZE) * WORLD_TILE_SIZE;
   let zTop = 1;
   let collisionCursor = 0;
+  let nextObjectId = 0;
+  let collisionContacts = new Set();
   let frameCount = 0;
   let lastHeld = null;
   let hintTimer = 0;
@@ -196,6 +199,8 @@
   let gameBallNextSpawnAt = 0;
   let gameRocketNextSpawnAt = 0;
   let gameCombo = 0;
+  let splitEnabled = false;
+  let unlimitedObjects = false;
   let gameTimeRemaining = GAME_DURATION_MS / 1000;
   let lastDisplayedGameSecond = -1;
   let fastestObjectSpeed = 0;
@@ -381,7 +386,12 @@
     layer.appendChild(fragment);
   }
 
+  function objectCapacityAvailable(count = 1) {
+    return unlimitedObjects || objects.length + count <= DEFAULT_OBJECT_LIMIT;
+  }
+
   function create(x, y, vx, vy, tier = 0, hue = Math.floor(rand(0, 360)), initialScale = 0.05, baseSize = null) {
+    if (!objectCapacityAvailable()) return null;
     if (objects.length >= MAX_OBJECTS) {
       const oldest = objects.find((object) => !object.held) ?? objects[0];
       if (oldest) remove(oldest, true, true);
@@ -404,6 +414,7 @@
     room.appendChild(el);
 
     const o = {
+      id: nextObjectId++,
       el, wob: el.firstChild, w, h, x, y, vx, vy, tier: formIndex, hue, isDvd,
       rot: rand(-30, 30), vr: rand(-25, 25), spin: rand(-25, 25),
       scale: isDvd ? Math.min(initialScale, 0.65) : initialScale,
@@ -548,27 +559,13 @@
     const size = Math.max(36, 50 - Math.max(0, gameScore) * 0.12);
     const targetColor = GAME_COLORS[Math.floor(rand(0, GAME_COLORS.length))];
     gameTargetColor = targetColor.name;
-    const decoyCount = Math.min(10, 1 + Math.floor(Math.max(0, gameScore) / 10));
+    const decoyCount = gameScore >= 90 ? 3 : gameScore >= 50 ? 2 : 1;
     const decoyColors = GAME_COLORS.filter((color) => color !== targetColor);
-    const maxStoneDistance = Math.max(
-      0,
-      (Math.min(VIEW_W, VIEW_H) / 2 - size * 0.7 - 12) / cameraZoom,
-    );
-    const outerRadius = Math.min(size * 3.6, maxStoneDistance);
-    const innerRadius = Math.min(size * 2.35, outerRadius * 0.62);
-    const clusterRadius = decoyCount > 4 ? outerRadius : innerRadius;
-    const clusterMargin = Math.max(20, (clusterRadius + size * 0.55) * cameraZoom + 12);
-    const positions = [randomVisiblePoint(clusterMargin)];
-    for (let index = 0; index < decoyCount; index++) {
-      const angle = index < 4
-        ? -Math.PI / 2 + index * Math.PI / 2
-        : -Math.PI / 2 + (index - 4) * TAU / Math.max(1, decoyCount - 4);
-      const distance = index < 4 ? innerRadius : outerRadius;
-      positions.push({
-        x: positions[0].x + Math.cos(angle) * distance,
-        y: positions[0].y + Math.sin(angle) * distance,
-      });
-    }
+    const orbitRadius = decoyCount
+      ? Math.max(0, Math.min(size * 2.8, (Math.min(VIEW_W, VIEW_H) / 2 - size - 18) / cameraZoom))
+      : 0;
+    const clusterMargin = Math.max(20, (orbitRadius + size / 2) * cameraZoom + 12);
+    let targetPosition = randomVisiblePoint(clusterMargin);
     let greatestClearance = -1;
     for (let attempt = 0; attempt < 24; attempt++) {
       const candidate = randomVisiblePoint(clusterMargin);
@@ -577,25 +574,22 @@
       ), Infinity);
       if (clearance > greatestClearance) {
         greatestClearance = clearance;
-        positions[0] = candidate;
+        targetPosition = candidate;
       }
-    }
-    for (let index = 1; index < positions.length; index++) {
-      const angle = index <= 4
-        ? -Math.PI / 2 + (index - 1) * Math.PI / 2
-        : -Math.PI / 2 + (index - 5) * TAU / Math.max(1, decoyCount - 4);
-      const distance = index <= 4 ? innerRadius : outerRadius;
-      positions[index] = {
-        x: positions[0].x + Math.cos(angle) * distance,
-        y: positions[0].y + Math.sin(angle) * distance,
-      };
     }
     const visibleFor = Math.max(1800, 6000 - Math.max(0, gameScore) * 30);
     gameStoneExpiresAt = now + visibleFor;
-    positions.forEach((position, index) => {
+    for (let index = 0; index <= decoyCount; index++) {
       const isTarget = index === 0;
       const color = isTarget ? targetColor : decoyColors[(index - 1) % decoyColors.length];
       const stoneSize = isTarget ? size : size * 0.82;
+      const orbitAngle = decoyCount ? -Math.PI / 2 + (index - 1) * TAU / decoyCount : 0;
+      const position = isTarget
+        ? targetPosition
+        : {
+          x: targetPosition.x + Math.cos(orbitAngle) * orbitRadius,
+          y: targetPosition.y + Math.sin(orbitAngle) * orbitRadius,
+        };
       const el = document.createElement('div');
       el.className = `game-stone${isTarget ? ' is-target' : ''}`;
       el.textContent = '◆';
@@ -607,9 +601,9 @@
       room.appendChild(el);
       gameStones.add({
         el, x: position.x, y: position.y, radius: stoneSize / 2,
-        color, isTarget, penalized: new Set(),
+        color, isTarget, penalized: new Set(), orbitAngle, orbitRadius,
       });
-    });
+    }
     updateGameScore();
   }
 
@@ -748,8 +742,19 @@
 
   function updateGameHazards(now, dt) {
     if (!gameActive) return;
+    const orbitSpeed = 0.75 + gameScore * 0.035;
+    for (const stone of gameStones) {
+      if (stone.isTarget) continue;
+      stone.orbitAngle += orbitSpeed * dt;
+      const target = [...gameStones].find((candidate) => candidate.isTarget);
+      if (!target) continue;
+      stone.x = target.x + Math.cos(stone.orbitAngle) * stone.orbitRadius;
+      stone.y = target.y + Math.sin(stone.orbitAngle) * stone.orbitRadius;
+      stone.el.style.left = `${stone.x}px`;
+      stone.el.style.top = `${stone.y}px`;
+    }
 
-    if (objects.length < MAX_OBJECTS && now >= gameBallNextSpawnAt) {
+    if (objectCapacityAvailable() && now >= gameBallNextSpawnAt) {
       const point = randomVisiblePoint(72);
       const angle = rand(0, TAU);
       create(point.x, point.y, Math.cos(angle) * 90, Math.sin(angle) * 90, 0, rand(0, 360), 0.05, rand(64, 92));
@@ -839,7 +844,7 @@
         : mode === 'phenomena' ? 'Choose an effect' : 'Choose a force';
     pickerHint.textContent = mode === 'forms'
       ? 'Drag a form into the room, or tap to add it.'
-      : mode === 'advanced' ? 'Choose a size, color or action.'
+      : mode === 'advanced' ? 'Toggle Split or choose a size, color or action.'
         : 'Choose an effect, then place it anywhere in the room.';
     formBtn.setAttribute('aria-expanded', String(mode === 'forms'));
 
@@ -847,6 +852,8 @@
       ? FORM_NAMES.map((name, index) => ({ id: String(index), name, icon: '', color: `hsl(${index * 22} 90% 70%)` }))
       : mode === 'advanced'
         ? [
+          { id: 'split', name: `Split: ${splitEnabled ? 'On' : 'Off'}`, icon: splitEnabled ? '✓' : '×', color: '#ffb36b' },
+          { id: 'unlimited', name: `Unlimited: ${unlimitedObjects ? 'On' : 'Off'}`, icon: '⚠', color: '#ff657a' },
           { id: 'size-1', name: 'Size 1', icon: '1', color: '#89d8ff' },
           { id: 'size-2', name: 'Size 2', icon: '2', color: '#a9a2ff' },
           { id: 'size-3', name: 'Size 3', icon: '3', color: '#eea8ff' },
@@ -867,6 +874,14 @@
       option.type = 'button';
       option.style.setProperty('--option-color', choice.color);
       option.setAttribute('aria-label', choice.name);
+      if (mode === 'advanced' && choice.id === 'split') {
+        option.setAttribute('aria-pressed', String(splitEnabled));
+        option.classList.toggle('is-active', splitEnabled);
+      }
+      if (mode === 'advanced' && choice.id === 'unlimited') {
+        option.setAttribute('aria-pressed', String(unlimitedObjects));
+        option.classList.toggle('is-active', unlimitedObjects);
+      }
       if (mode === 'forms') {
         const sample = document.createElement('span');
         sample.className = `form-sample glass ${SHAPES[Number(choice.id)]}`;
@@ -986,6 +1001,10 @@
   }
 
   function spawnForm(index, x, y, dropped = false) {
+    if (!objectCapacityAvailable()) {
+      setHint(`Object limit reached (${DEFAULT_OBJECT_LIMIT}). Enable Unlimited in Advanced to keep spawning.`);
+      return null;
+    }
     const hue = colorMode === 'random' ? Math.floor(rand(0, 360)) : index * 22;
     const o = create(x, y, rand(-90, 90), rand(-90, 90), index, hue);
     if (!o) return null;
@@ -996,6 +1015,20 @@
   }
 
   function applyAdvancedAction(action) {
+    if (action === 'split') {
+      splitEnabled = !splitEnabled;
+      setHint(`Automatic splitting ${splitEnabled ? 'enabled' : 'disabled'}. Without it, objects split only on rare collisions (1:200).`);
+      openPicker('advanced');
+      return;
+    }
+    if (action === 'unlimited') {
+      unlimitedObjects = !unlimitedObjects;
+      setHint(unlimitedObjects
+        ? 'Unlimited spawning enabled. The technical limit is 2,000 objects.'
+        : `Unlimited spawning disabled. Spawning is capped at ${DEFAULT_OBJECT_LIMIT} objects.`);
+      openPicker('advanced');
+      return;
+    }
     if (action.startsWith('background-')) {
       const preset = action.slice('background-'.length);
       setBackgroundPreset(preset);
@@ -2017,7 +2050,7 @@
       }
     }
     for (const spawner of recurringSpawners) {
-      if (gameActive || spawner.paused || t < spawner.nextSpawnAt) continue;
+      if (gameActive || spawner.paused || !objectCapacityAvailable() || t < spawner.nextSpawnAt) continue;
       spawner.nextSpawnAt = t + RECURRING_SPAWN_INTERVAL;
       spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
     }
@@ -2127,6 +2160,7 @@
     }
 
     if (!objects.length) return;
+    const currentContacts = new Set();
     const startIndex = collisionCursor % objects.length;
     collisionCursor = (startIndex + Math.max(1, Math.floor(objects.length / 8))) % objects.length;
     const pairBudget = Math.min(
@@ -2158,6 +2192,8 @@
             const d = Math.hypot(dx, dy);
             const min = ra + rb;
             if (d >= min || d < 0.001) continue;
+            const contactKey = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
+            currentContacts.add(contactKey);
 
             const nx = dx / d;
             const ny = dy / d;
@@ -2171,10 +2207,16 @@
             }
 
             if (!a.held && !b.held && a.tier === b.tier
+              && objectCapacityAvailable(MAX_SPLIT_CHILDREN - 2)
               && (!gameActive || (!a.gameSplitUsed && !b.gameSplitUsed))
               && a.splitAfter <= t && b.splitAfter <= t) {
-              split(a, b, t);
-              return;
+              const shouldSplit = splitEnabled
+                || (!collisionContacts.has(contactKey) && Math.random() < 1 / 200);
+              if (shouldSplit) {
+                collisionContacts = currentContacts;
+                split(a, b, t);
+                return;
+              }
             }
 
             a.x -= nx * overlap * ia * share;
@@ -2204,9 +2246,11 @@
         }
       }
     }
+    collisionContacts = currentContacts;
   }
 
   function trySplit(o) {
+    if (!splitEnabled || !objectCapacityAvailable(MAX_SPLIT_CHILDREN - 2)) return false;
     if (!objects.includes(o) || o.pointers.size > 0) return false;
 
     let closest = null;
@@ -2224,12 +2268,12 @@
     }
     if (!closest) return false;
 
-    split(o, closest, performance.now());
-    return true;
+    return split(o, closest, performance.now());
   }
 
   function split(a, b, t) {
     if (a === b || !objects.includes(a) || !objects.includes(b) || a.tier !== b.tier) return false;
+    if (!objectCapacityAvailable(MAX_SPLIT_CHILDREN - 2)) return false;
     if (gameActive && (a.gameSplitUsed || b.gameSplitUsed)) return false;
     if (gameActive) a.gameSplitUsed = b.gameSplitUsed = true;
     const x = (a.x + b.x) / 2;
