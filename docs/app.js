@@ -554,11 +554,33 @@
   }
 
   function randomVisiblePoint(margin = Math.min(190, VIEW_H * 0.2)) {
-    const left = (margin - cameraX) / cameraZoom - worldOffsetX;
-    const right = (VIEW_W - margin - cameraX) / cameraZoom - worldOffsetX;
-    const top = (margin - cameraY) / cameraZoom - worldOffsetY;
-    const bottom = (VIEW_H - margin - cameraY) / cameraZoom - worldOffsetY;
-    return { x: rand(left, Math.max(left, right)), y: rand(top, Math.max(top, bottom)) };
+    const bounds = visibleWorldBounds();
+    const worldMargin = margin / cameraZoom;
+    const minX = Math.min(worldMargin, W / 2);
+    const maxX = Math.max(minX, W - worldMargin);
+    const minY = Math.min(worldMargin, H / 2);
+    const maxY = Math.max(minY, H - worldMargin);
+    const left = clamp(bounds.left + worldMargin, minX, maxX);
+    const right = clamp(bounds.right - worldMargin, minX, maxX);
+    const top = clamp(bounds.top + worldMargin, minY, maxY);
+    const bottom = clamp(bounds.bottom - worldMargin, minY, maxY);
+    return {
+      x: rand(Math.min(left, right), Math.max(left, right)),
+      y: rand(Math.min(top, bottom), Math.max(top, bottom)),
+    };
+  }
+
+  function randomPointNear(point, maxDistance, margin) {
+    const minX = Math.min(margin, W / 2);
+    const maxX = Math.max(minX, W - margin);
+    const minY = Math.min(margin, H / 2);
+    const maxY = Math.max(minY, H - margin);
+    const angle = rand(0, TAU);
+    const distance = rand(Math.min(100, maxDistance), maxDistance);
+    return {
+      x: clamp(point.x + Math.cos(angle) * distance, minX, maxX),
+      y: clamp(point.y + Math.sin(angle) * distance, minY, maxY),
+    };
   }
 
   function clearGameStones() {
@@ -584,14 +606,17 @@
       : 0;
     const clusterMargin = Math.max(20, (orbitRadius + size / 2) * cameraZoom + 12);
     let targetPosition = randomVisiblePoint(clusterMargin);
-    let greatestClearance = -1;
-    for (let attempt = 0; attempt < 24; attempt++) {
+    const desiredObjectGap = 260;
+    let bestReachabilityScore = Infinity;
+    for (let attempt = 0; attempt < 48; attempt++) {
       const candidate = randomVisiblePoint(clusterMargin);
-      const clearance = objects.reduce((closest, object) => (
+      const nearestGap = objects.reduce((closest, object) => (
         Math.min(closest, Math.hypot(candidate.x - object.x, candidate.y - object.y) - radius(object))
       ), Infinity);
-      if (clearance > greatestClearance) {
-        greatestClearance = clearance;
+      const overlapPenalty = nearestGap < size / 2 + 60 ? 500 : 0;
+      const reachabilityScore = overlapPenalty + Math.abs(nearestGap - desiredObjectGap);
+      if (reachabilityScore < bestReachabilityScore) {
+        bestReachabilityScore = reachabilityScore;
         targetPosition = candidate;
       }
     }
@@ -773,7 +798,10 @@
     }
 
     if (objectCapacityAvailable() && now >= gameBallNextSpawnAt) {
-      const point = randomVisiblePoint(72);
+      const target = [...gameStones].find((stone) => stone.isTarget);
+      const point = target
+        ? randomPointNear(target, 240, 72)
+        : randomVisiblePoint(72);
       const angle = rand(0, TAU);
       create(point.x, point.y, Math.cos(angle) * 90, Math.sin(angle) * 90, 0, rand(0, 360), 0.05, rand(64, 92));
       const ballInterval = Math.min(
