@@ -7,6 +7,7 @@
   const moreBtn = document.getElementById('more');
   const dockActions = document.getElementById('dock-actions');
   const magicMenu = document.getElementById('magic-menu');
+  const themeToggle = document.getElementById('theme-toggle');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
   const phenomenaBtn = document.getElementById('phenomena-effects');
@@ -46,6 +47,30 @@
   const pickerHint = document.getElementById('picker-hint');
   const pickerClose = document.getElementById('picker-close');
   const formClickSuppression = new WeakMap();
+  const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+  let themeMode = 'system';
+
+  function updateTheme() {
+    const dark = themeMode === 'system' ? systemTheme.matches : themeMode === 'dark';
+    const themeName = themeMode === 'system' ? 'System' : themeMode === 'dark' ? 'Dark' : 'Light';
+    const themeColor = dark ? '#071a38' : '#dff4ff';
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+    document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content =
+      dark ? 'black-translucent' : 'default';
+    themeToggle.setAttribute('aria-label', `Theme: ${themeName}`);
+    themeToggle.title = `Theme: ${themeName}`;
+    themeToggle.querySelector('.button-plus').textContent = themeMode === 'system'
+      ? '◐'
+      : themeMode === 'dark' ? '☾' : '☀';
+    themeToggle.querySelector('.button-label').textContent = themeName;
+    document.querySelector('meta[name="theme-color"]').content = themeColor;
+  }
+
+  updateTheme();
+  systemTheme.addEventListener('change', () => {
+    if (themeMode === 'system') updateTheme();
+  });
 
   function updateMusicButton() {
     const playing = !roomMusic.paused;
@@ -1921,6 +1946,10 @@
     magicMenu.hidden = !isOpen;
     moreBtn.setAttribute('aria-expanded', String(isOpen));
     moreBtn.setAttribute('aria-label', isOpen ? 'Hide more controls' : 'Show more controls');
+  });
+  themeToggle.addEventListener('click', () => {
+    themeMode = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
+    updateTheme();
   });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));

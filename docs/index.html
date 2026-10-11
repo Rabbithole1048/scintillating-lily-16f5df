@@ -5,7 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Floatroom — touch the floating glass</title>
   <meta name="description" content="A playful room full of floating liquid-glass objects. Drag, fling, pinch, hold to grow, double-tap to shrink." />
-  <meta name="theme-color" content="#0c0620" />
+  <meta name="theme-color" content="#071a38" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Floatroom" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;800&family=Space+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -124,6 +131,10 @@
         <span class="button-label">Help</span>
       </button>
       <div id="magic-menu" class="magic-menu" hidden>
+        <button id="theme-toggle" class="add glass-ui" type="button" aria-label="Theme: System" title="Theme: System">
+          <span class="button-plus" aria-hidden="true">◐</span>
+          <span class="button-label">Theme: System</span>
+        </button>
         <button id="elements" class="add glass-ui" type="button" aria-label="Choose a natural force">
           <span class="button-plus" aria-hidden="true">+</span>
           <span class="button-label">Elements</span>
