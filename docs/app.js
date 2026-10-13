@@ -3,6 +3,7 @@
   const mapWorld = document.getElementById('map-world');
   const backdropWorld = document.querySelector('.backdrop-world');
   const backdropGrid = document.querySelector('.grid');
+  const gridToggle = document.getElementById('grid-toggle');
   const formBtn = document.getElementById('add');
   const moreBtn = document.getElementById('more');
   const dockActions = document.getElementById('dock-actions');
@@ -10,6 +11,7 @@
   const themeToggle = document.getElementById('theme-toggle');
   const elementBtn = document.getElementById('elements');
   const lightBtn = document.getElementById('light-effects');
+  const glowToggle = document.getElementById('glow-toggle');
   const phenomenaBtn = document.getElementById('phenomena-effects');
   const frameBtn = document.getElementById('draw-frame');
   const clearObjectsBtn = document.getElementById('clear-forms');
@@ -18,6 +20,12 @@
   const advancedBtn = document.getElementById('advanced');
   const gameBtn = document.getElementById('game');
   const gameLabel = document.getElementById('game-label');
+  const game2Btn = document.getElementById('game2');
+  const game2Label = document.getElementById('game2-label');
+  const game2ScoreEl = document.getElementById('game2-score');
+  const game2TimeEl = document.getElementById('game2-time');
+  const game2RecordEl = document.getElementById('game2-record');
+  const game2ShieldsEl = document.getElementById('game2-shields');
   const gameScoreEl = document.getElementById('game-score');
   const gamePointsEl = document.getElementById('game-points');
   const gameStonesEl = document.getElementById('game-stones');
@@ -49,6 +57,7 @@
   const formClickSuppression = new WeakMap();
   const systemTheme = matchMedia('(prefers-color-scheme: dark)');
   let themeMode = 'system';
+  let objectGlowEnabled = false;
 
   function updateTheme() {
     const dark = themeMode === 'system' ? systemTheme.matches : themeMode === 'dark';
@@ -99,12 +108,14 @@
   const MAX_SCALE = 3.2;
   const MAX_OBJECTS = 2000;
   const DEFAULT_OBJECT_LIMIT = 10;
+  const GAME2_OBJECT_LIMIT = 50;
+  const GAME2_INITIAL_ENEMIES = 18;
   const HIGH_DENSITY_THRESHOLD = 800;
   const MAX_COLLISION_PAIRS_PER_FRAME = 16000;
   const WORLD_SCALE = 8;
   const WORLD_TILE_SIZE = 56;
   const GAME_TARGET = 100;
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.2.0';
   const INTRO_ARRIVAL_DURATION_MS = 1800;
   const INTRO_GROW_DURATION_MS = 3000;
   const GAME_DURATION_MS = 60_000;
@@ -213,6 +224,25 @@
   let parallaxTargetDepth = 0;
   let gameActive = false;
   let gameFinished = false;
+  let game2Selecting = false;
+  let game2Active = false;
+  let game2Player = null;
+  let game2StartedAt = 0;
+  let game2CollisionGraceUntil = 0;
+  let game2Elapsed = 0;
+  let game2Record = 0;
+  let game2LastHudUpdate = 0;
+  let game2NextShieldAt = 0;
+  let game2SpeedStage = false;
+  let game2SizeStage = false;
+  let game2DvdStage = false;
+  let game2DriveX = 0;
+  let game2DriveY = 0;
+  let game2Dvd = null;
+  const game2Choices = [];
+  const game2Pickups = [];
+  const game2Shields = [];
+  const game2OriginalTargets = new Map();
   let gameScore = 0;
   let activatedStones = 0;
   const gameStones = new Set();
@@ -427,6 +457,7 @@
   }
 
   function objectCapacityAvailable(count = 1) {
+    if (game2Active) return objects.length + count <= GAME2_OBJECT_LIMIT;
     return unlimitedObjects || objects.length + count <= DEFAULT_OBJECT_LIMIT;
   }
 
@@ -444,6 +475,7 @@
 
     const el = document.createElement('div');
     el.className = 'obj';
+    el.classList.toggle('magic-glow', objectGlowEnabled);
     el.style.width = w + 'px';
     el.style.height = h + 'px';
     el.style.setProperty('--h', hue);
@@ -538,7 +570,7 @@
   }
 
   function updateGameScore() {
-    gameScoreEl.hidden = !gameActive && !gameFinished;
+    gameScoreEl.hidden = game2Selecting || game2Active || (!gameActive && !gameFinished);
     gamePointsEl.textContent = gameScore;
     gameStonesEl.textContent = activatedStones;
     gameTimeEl.textContent = `${Math.ceil(gameTimeRemaining)}s`;
@@ -674,6 +706,8 @@
   }
 
   function startGame() {
+    if (game2Selecting || game2Active) finishGameTwo(false, true);
+    game2ScoreEl.hidden = true;
     gameActive = true;
     gameFinished = false;
     statsPanel.hidden = true;
@@ -694,7 +728,373 @@
     setHint('60 seconds: nudge a form into the shown color. Hit a different color and lose points.');
   }
 
+  function updateGameTwoButton() {
+    const active = game2Selecting || game2Active;
+    game2Btn.setAttribute('aria-pressed', String(active));
+    game2Btn.setAttribute('aria-label', active
+      ? game2Selecting ? 'Cancel survival game selection' : 'Stop survival game'
+      : game2Record > 0 ? 'Play survival game again' : 'Start survival game');
+    game2Label.textContent = active ? game2Selecting ? 'Choose' : 'Stop'
+      : game2Record > 0 ? 'Again' : 'Game 2';
+  }
+
+  function updateGameTwoHud(now = performance.now(), force = false) {
+    if (!force && now - game2LastHudUpdate < 100) return;
+    game2LastHudUpdate = now;
+    const elapsed = game2Active ? (now - game2StartedAt) / 1000 : game2Elapsed;
+    game2TimeEl.textContent = `${elapsed.toFixed(1)}s`;
+    game2RecordEl.textContent = `${Math.max(game2Record, elapsed).toFixed(1)}s`;
+    game2ShieldsEl.textContent = game2Shields.length;
+  }
+
+  function beginGameTwoSelection() {
+    if (game2Selecting || game2Active) {
+      finishGameTwo(false);
+      return;
+    }
+    if (gameActive) stopGame();
+    gameFinished = false;
+    updateGameScore();
+    game2Selecting = true;
+    game2Elapsed = 0;
+    game2ScoreEl.hidden = false;
+    game2Choices.length = 0;
+    const angles = [-Math.PI / 2, 0, Math.PI / 2, Math.PI];
+    const hues = [132, 218, 28, 310];
+    const screenMarginX = Math.min(90, VIEW_W * 0.22);
+    const screenGapY = Math.max(80, Math.min(190, (VIEW_H - 210) / 3));
+    const screenCenterY = VIEW_H / 2;
+    const screenPositions = [
+      { x: screenMarginX, y: screenCenterY - screenGapY / 2 },
+      { x: VIEW_W - screenMarginX, y: screenCenterY - screenGapY / 2 },
+      { x: screenMarginX, y: screenCenterY + screenGapY / 2 },
+      { x: VIEW_W - screenMarginX, y: screenCenterY + screenGapY / 2 },
+    ];
+    for (let index = 0; index < 4; index++) {
+      let object = introObjects[index];
+      if (!object || !objects.includes(object)) {
+        object = createIntroOrb(angles[index], 0.7 + index * 0.08, hues[index]);
+        if (object) introObjects[index] = object;
+      }
+      if (!object) break;
+      object.demoOrbit = null;
+      object.introGrowth = null;
+      object.held = true;
+      object.vx = object.vy = 0;
+      object.target = Math.max(object.target, 0.64);
+      object.frame = null;
+      const position = worldPoint(screenPositions[index].x, screenPositions[index].y);
+      object.x = position.x;
+      object.y = position.y;
+      object.el.classList.remove('intro-glow');
+      object.el.classList.add('game2-selectable');
+      object.el.tabIndex = 0;
+      object.el.setAttribute('role', 'button');
+      object.el.setAttribute('aria-label', `Choose starter orb ${index + 1}`);
+      const choose = (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        if (game2Selecting) startGameTwo(object);
+      };
+      object.el.onkeydown = choose;
+      game2Choices.push(object);
+    }
+    if (game2Choices.length !== 4) {
+      finishGameTwo(false, true);
+      setHint('Game 2 needs four starter orbs. Clear some objects and try again.', 3_000);
+      return;
+    }
+    updateGameTwoButton();
+    updateGameTwoHud(performance.now(), true);
+    game2ScoreEl.querySelector('span:first-child').firstChild.textContent = 'Choose an orb';
+    setHint('Choose one of the four glowing starter orbs to begin Game 2.', 3_000);
+  }
+
+  function startGameTwo(player) {
+    if (!game2Selecting || !game2Choices.includes(player)) return;
+    game2Selecting = false;
+    game2Active = true;
+    game2Player = player;
+    game2StartedAt = performance.now();
+    game2CollisionGraceUntil = game2StartedAt + 2_000;
+    game2Elapsed = 0;
+    game2NextShieldAt = game2StartedAt + 8000;
+    game2SpeedStage = false;
+    game2SizeStage = false;
+    game2DvdStage = false;
+    game2DriveX = game2DriveY = 0;
+    game2OriginalTargets.clear();
+    clearGameTwoExtras();
+    while (objects.length + GAME2_INITIAL_ENEMIES > GAME2_OBJECT_LIMIT) {
+      const oldestEnemy = objects.find((object) => object !== player);
+      if (!oldestEnemy) break;
+      remove(oldestEnemy, true, true);
+    }
+    for (let index = 0; index < GAME2_INITIAL_ENEMIES && objectCapacityAvailable(); index++) {
+      let point = randomVisiblePoint(110);
+      let bestGap = -Infinity;
+      for (let attempt = 0; attempt < 64; attempt++) {
+        const candidate = randomVisiblePoint(110);
+        const gap = objects.reduce((closest, object) => (
+          Math.min(closest, Math.hypot(candidate.x - object.x, candidate.y - object.y) - radius(object))
+        ), Infinity);
+        const playerGap = Math.hypot(candidate.x - player.x, candidate.y - player.y);
+        const score = playerGap >= 240 / cameraZoom ? gap : gap - 1_000_000;
+        if (score > bestGap) {
+          bestGap = score;
+          point = candidate;
+        }
+        if (gap >= 120 / cameraZoom && playerGap >= 240 / cameraZoom) break;
+      }
+      create(
+        point.x,
+        point.y,
+        0,
+        0,
+        Math.floor(rand(0, SHAPES.length)),
+        Math.floor(rand(0, 360)),
+        0.72,
+      );
+    }
+    for (const object of objects) {
+      object.demoOrbit = null;
+      object.introGrowth = null;
+      object.frame = null;
+      object.el.classList.remove('game2-selectable');
+      object.el.removeAttribute('tabindex');
+      object.el.removeAttribute('role');
+      object.el.removeAttribute('aria-label');
+      object.held = false;
+      game2OriginalTargets.set(object, object.target);
+      if (object !== player) {
+        const angle = rand(0, TAU);
+        const speed = rand(45, 80);
+        object.vx = Math.cos(angle) * speed;
+        object.vy = Math.sin(angle) * speed;
+      }
+    }
+    player.el.classList.add('game2-player');
+    player.lastTap = 0;
+    player.target = Math.max(player.target, 0.64);
+    game2ScoreEl.querySelector('span:first-child').firstChild.textContent = 'Survival ';
+    game2ScoreEl.hidden = false;
+    updateGameTwoButton();
+    updateGameTwoHud(game2StartedAt, true);
+    setHint('Stay clear of every other orb. Drag your orb to steer the field and collect shields.', 3_000);
+  }
+
+  function createGameTwoPickup() {
+    const minGap = 110 / cameraZoom;
+    let point = randomVisiblePoint(70);
+    let bestGap = -Infinity;
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const candidate = randomVisiblePoint(70);
+      const gap = objects.reduce((closest, object) => (
+        object === game2Player ? closest
+          : Math.min(closest, Math.hypot(candidate.x - object.x, candidate.y - object.y) - radius(object))
+      ), Infinity);
+      if (gap > bestGap) {
+        bestGap = gap;
+        point = candidate;
+      }
+      if (gap >= minGap) break;
+    }
+    const el = document.createElement('div');
+    el.className = 'game2-pickup';
+    el.textContent = '✦';
+    el.setAttribute('aria-hidden', 'true');
+    el.style.left = `${point.x}px`;
+    el.style.top = `${point.y}px`;
+    room.appendChild(el);
+    game2Pickups.push({ el, x: point.x, y: point.y, radius: 18 });
+  }
+
+  function clearGameTwoExtras() {
+    for (const pickup of game2Pickups) pickup.el.remove();
+    game2Pickups.length = 0;
+    for (const shield of game2Shields) shield.el.remove();
+    game2Shields.length = 0;
+    if (game2Dvd) {
+      if (objects.includes(game2Dvd)) remove(game2Dvd, true, true);
+      game2Dvd = null;
+    }
+    for (const [object, target] of game2OriginalTargets) {
+      if (objects.includes(object)) {
+        object.target = target;
+        object.el.classList.remove('game2-dvd');
+        object.el.querySelector('.game2-dvd-label')?.remove();
+      }
+    }
+    game2OriginalTargets.clear();
+    game2ShieldsEl.textContent = '0';
+  }
+
+  function spawnGameTwoDvd() {
+    let point = randomVisiblePoint(100);
+    let farthestFromPlayer = -Infinity;
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const candidate = randomVisiblePoint(100);
+      const gap = Math.hypot(candidate.x - game2Player.x, candidate.y - game2Player.y);
+      if (gap > farthestFromPlayer) {
+        farthestFromPlayer = gap;
+        point = candidate;
+      }
+    }
+    let object = create(point.x, point.y, rand(-220, 220), rand(-220, 220), 0, 220, 0.75, 100);
+    if (!object && objects.length >= GAME2_OBJECT_LIMIT) {
+      const oldestEnemy = objects.find((candidate) => candidate !== game2Player && !candidate.held);
+      if (oldestEnemy) {
+        remove(oldestEnemy, true, true);
+        object = create(point.x, point.y, rand(-220, 220), rand(-220, 220), 0, 220, 0.75, 100);
+      }
+    }
+    if (!object) return;
+    object.isDvd = true;
+    object.target = Math.max(object.target, 1);
+    object.el.classList.add('dvd-object', 'game2-dvd');
+    if (!object.el.querySelector('.dvd-label')) {
+      const label = document.createElement('span');
+      label.className = 'dvd-label game2-dvd-label';
+      label.textContent = 'DVD';
+      object.el.querySelector('.glass').appendChild(label);
+    }
+    game2Dvd = object;
+    game2OriginalTargets.set(object, object.target);
+    ripple(object.x, object.y, radius(object) * 3);
+  }
+
+  function updateGameTwo(now, dt) {
+    if (!game2Active) return;
+    game2Elapsed = (now - game2StartedAt) / 1000;
+    game2Record = Math.max(game2Record, game2Elapsed);
+    if (game2Elapsed >= 5 && game2Elapsed - dt < 5) {
+      setHint('The orbs are closing in. Keep moving and steer them away.', 3_000);
+    }
+    if (!game2SpeedStage && game2Elapsed >= 10) {
+      game2SpeedStage = true;
+      setHint('The field speeds up! Drag your orb to steer the rush.', 3_000);
+    }
+    if (!game2SizeStage && game2Elapsed >= 30) {
+      game2SizeStage = true;
+      for (const object of objects) object.target = Math.min(MAX_SCALE, object.target * 1.3);
+      setHint('The orbs are growing. Keep steering clear.', 3_000);
+    }
+    if (game2Elapsed >= 40 && game2Elapsed - dt < 40) {
+      setHint('The orbs are much faster now. Stay on the move!', 3_000);
+    }
+    if (!game2DvdStage && game2Elapsed >= 60) {
+      game2DvdStage = true;
+      spawnGameTwoDvd();
+      setHint('The DVD is on the field! The other orbs are moving very fast.', 3_000);
+    }
+    if (now >= game2NextShieldAt) {
+      if (game2Shields.length < 2) createGameTwoPickup();
+      game2NextShieldAt = now + 12000;
+    }
+    game2DriveX *= Math.exp(-dt * 2.4);
+    game2DriveY *= Math.exp(-dt * 2.4);
+    updateGameTwoHud(now);
+  }
+
+  function checkGameTwoCollisions(now, dt) {
+    if (!game2Active || !game2Player) return;
+    const bounds = visibleWorldBounds();
+    const playerRadius = radius(game2Player);
+    if (!objects.includes(game2Player)
+      || game2Player.x + playerRadius < bounds.left
+      || game2Player.x - playerRadius > bounds.right
+      || game2Player.y + playerRadius < bounds.top
+      || game2Player.y - playerRadius > bounds.bottom) {
+      finishGameTwo(false, false, true);
+      return;
+    }
+    for (const pickup of [...game2Pickups]) {
+      if (Math.hypot(game2Player.x - pickup.x, game2Player.y - pickup.y)
+        >= radius(game2Player) + pickup.radius) continue;
+      pickup.el.remove();
+      game2Pickups.splice(game2Pickups.indexOf(pickup), 1);
+      if (game2Shields.length < 2) {
+        const el = document.createElement('div');
+        el.className = 'game2-shield';
+        el.textContent = '◆';
+        el.setAttribute('aria-hidden', 'true');
+        room.appendChild(el);
+        game2Shields.push({ el, angle: game2Shields.length * TAU / 3 });
+        navigator.vibrate?.(8);
+        setHint('Shield collected! It circles your orb and removes an opponent on contact.', 3_000);
+      }
+    }
+
+    const enemies = objects.filter((object) => object !== game2Player);
+    for (let index = game2Shields.length - 1; index >= 0; index--) {
+      const shield = game2Shields[index];
+      shield.angle += 2.2 * dt;
+      const orbitRadius = radius(game2Player) + 26;
+      const x = game2Player.x + Math.cos(shield.angle) * orbitRadius;
+      const y = game2Player.y + Math.sin(shield.angle) * orbitRadius;
+      shield.el.style.left = `${x}px`;
+      shield.el.style.top = `${y}px`;
+      const enemy = enemies.find((object) => (
+        Math.hypot(object.x - x, object.y - y) < radius(object) + 14
+      ));
+      if (!enemy) continue;
+      remove(enemy, true, true);
+      shield.el.remove();
+      game2Shields.splice(index, 1);
+      ripple(x, y, radius(enemy) * 2.8);
+      enemies.splice(enemies.indexOf(enemy), 1);
+      setHint('Shield hit an opponent and protected you!', 3_000);
+    }
+
+    const enemy = enemies.find((object) => (
+      Math.hypot(object.x - game2Player.x, object.y - game2Player.y)
+        < radius(object) + radius(game2Player)
+    ));
+    if (enemy && now >= game2CollisionGraceUntil) finishGameTwo(true);
+    else updateGameTwoHud(now);
+  }
+
+  function finishGameTwo(collided = false, cancelled = false, lost = false) {
+    if (!game2Selecting && !game2Active) return;
+    const wasSelecting = game2Selecting;
+    game2Record = Math.max(game2Record, game2Elapsed);
+    game2Active = false;
+    game2Selecting = false;
+    if (game2Player) {
+      game2Player.el.classList.remove('game2-player');
+      for (const pointerId of game2Player.pointers.keys()) pointerOwner.delete(pointerId);
+      game2Player.pointers.clear();
+      game2Player.held = false;
+      stopGrow(game2Player);
+    }
+    for (const object of game2Choices) {
+      object.el.classList.remove('game2-selectable');
+      object.el.onkeydown = null;
+      object.el.removeAttribute('tabindex');
+      object.el.removeAttribute('role');
+      object.el.removeAttribute('aria-label');
+      object.held = false;
+    }
+    game2Choices.length = 0;
+    clearGameTwoExtras();
+    game2Player = null;
+    updateGameScore();
+    updateGameTwoButton();
+    updateGameTwoHud(performance.now(), true);
+    game2ScoreEl.hidden = cancelled || wasSelecting;
+    if (collided) {
+      setHint(`You hit an orb! Survival record: ${game2Record.toFixed(1)} seconds.`, 3_000);
+    } else if (lost) {
+      setHint(`You lost your orb! Survival record: ${game2Record.toFixed(1)} seconds.`, 3_000);
+    } else if (wasSelecting && !cancelled) {
+      setHint('Game 2 selection cancelled.', 3_000);
+    } else if (!cancelled) {
+      setHint(`Game 2 stopped. Survival record: ${game2Record.toFixed(1)} seconds.`, 3_000);
+    }
+  }
+
   function stopGame(won = false, timedOut = false) {
+    if (game2Selecting || game2Active) finishGameTwo(false, true);
     gameActive = false;
     gameFinished = true;
     clearGameStones();
@@ -894,9 +1294,14 @@
     setHint('One form remains protected. Reaching zero is the hidden challenge.');
   }
 
-  function setHint(message) {
+  function setHint(message, duration = 10_000) {
     hint.firstElementChild.textContent = message;
     hint.classList.toggle('hide', document.body.classList.contains('help-hidden'));
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => {
+      hint.classList.add('hide');
+      hintTimer = 0;
+    }, duration);
   }
 
   function openPicker(mode) {
@@ -998,6 +1403,7 @@
       spawnAction.addEventListener('click', () => {
         choosingSpawnPoint = true;
         room.classList.add('choosing-spawn');
+        updateSpawnMarker();
         setHint('Click or tap anywhere in the room to set the spawn point.');
       });
       pickerOptions.appendChild(spawnAction);
@@ -1675,7 +2081,10 @@
 
   function dismissHint() {
     if (hintTimer) return;
-    hintTimer = setTimeout(() => hint.classList.add('hide'), 2500);
+    hintTimer = setTimeout(() => {
+      hint.classList.add('hide');
+      hintTimer = 0;
+    }, 10_000);
   }
 
   // ---------- gestures ----------
@@ -1709,6 +2118,11 @@
   function onDown(o, e) {
     e.preventDefault();
     e.stopPropagation();
+    if (game2Selecting) {
+      if (!game2Choices.includes(o)) return;
+      startGameTwo(o);
+    }
+    if (game2Active && o !== game2Player) return;
     dismissHint();
     if (o.pointers.size >= 2) return;
     o.demoOrbit = null;
@@ -1727,7 +2141,7 @@
       beginDrag(o, p);
       clearTimeout(o.timer);
       o.timer = setTimeout(() => {
-        if (o.pointers.size === 1 && !o.moved) {
+        if (!game2Active && o.pointers.size === 1 && !o.moved) {
           o.growing = o.grew = true;
           o.el.classList.add('growing');
           navigator.vibrate?.(8);
@@ -1792,6 +2206,12 @@
 
   document.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.dock, .top, .stats-panel, .game-score, .hint, .recurring-spawn-point')) return;
+    if (game2Active
+      && (!e.target.closest('.game2-player') || pointerOwner.size > 0 || fieldPointerOwner.size > 0)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
     if (cameraPointers.size > 0) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -1839,6 +2259,10 @@
     const moveDt = Math.max((now - p.t) / 1000, 0.008);
     const moveX = (p.x - point.x) / moveDt;
     const moveY = (p.y - point.y) / moveDt;
+    if (game2Active && o === game2Player) {
+      game2DriveX = clamp(-moveX / 900, -1, 1);
+      game2DriveY = clamp(-moveY / 900, -1, 1);
+    }
     const dragSpeed = Math.hypot(moveX, moveY);
     p.x = point.x;
     p.y = point.y;
@@ -1892,6 +2316,11 @@
     const wasGrowing = o.grew;
     stopGrow(o);
     const now = performance.now();
+    if (game2Active && o === game2Player) {
+      o.lastTap = 0;
+      recordObjectSpeed(o);
+      return;
+    }
     if (o.moved) assignFrameAfterDrag(o);
     if (o.moved && trySplit(o)) return;
     const isTap = !o.moved && !o.pinched && !wasGrowing && now - o.downT < TAP_MS;
@@ -1949,17 +2378,34 @@
     themeMode = themeMode === 'system' ? 'light' : themeMode === 'light' ? 'dark' : 'system';
     updateTheme();
   });
+  gridToggle.addEventListener('click', () => {
+    backdropGrid.hidden = !backdropGrid.hidden;
+    const visible = !backdropGrid.hidden;
+    gridToggle.setAttribute('aria-pressed', String(visible));
+    gridToggle.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} grid`);
+    gridToggle.title = `Grid: ${visible ? 'on' : 'off'}`;
+  });
   elementBtn.addEventListener('click', () => openPicker('elements'));
   lightBtn.addEventListener('click', () => openPicker('light'));
+  glowToggle.addEventListener('click', () => {
+    objectGlowEnabled = !objectGlowEnabled;
+    for (const object of objects) object.el.classList.toggle('magic-glow', objectGlowEnabled);
+    glowToggle.setAttribute('aria-pressed', String(objectGlowEnabled));
+    glowToggle.setAttribute('aria-label', `Turn object glow ${objectGlowEnabled ? 'off' : 'on'}`);
+    glowToggle.title = `Object glow: ${objectGlowEnabled ? 'on' : 'off'}`;
+    setHint(`Object glow ${objectGlowEnabled ? 'on' : 'off'}.`);
+  });
   phenomenaBtn.addEventListener('click', () => openPicker('phenomena'));
   musicToggle.addEventListener('click', () => {
     if (roomMusic.paused) playRoomMusic();
     else roomMusic.pause();
   });
   gameBtn.addEventListener('click', () => {
+    if (game2Selecting || game2Active) finishGameTwo(false, true);
     if (gameActive) stopGame();
     else startGame();
   });
+  game2Btn.addEventListener('click', beginGameTwoSelection);
   statsToggle.addEventListener('click', () => {
     const isOpen = statsPanel.hidden;
     statsPanel.hidden = !isOpen;
@@ -2077,8 +2523,7 @@
     }
     updateCamera();
     if (!spawnPointCustom) {
-      const dockTop = document.querySelector('.dock').getBoundingClientRect().top;
-      spawnPoint = worldPoint(VIEW_W / 2, Math.max(24, dockTop - 36));
+      spawnPoint = worldPoint(VIEW_W / 2, VIEW_H * 0.3);
       if (spawnMarker) updateSpawnMarker();
     }
   });
@@ -2092,6 +2537,7 @@
     lastT = t;
     updateGameClock(t);
     updateGameHazards(t, dt);
+    updateGameTwo(t, dt);
     const parallaxEase = Math.min(1, dt * (cameraPointers.size ? 8 : 2.8));
     parallaxX += (parallaxTargetX - parallaxX) * parallaxEase;
     parallaxY += (parallaxTargetY - parallaxY) * parallaxEase;
@@ -2102,19 +2548,21 @@
     const visibleWidth = visibleBounds.right - visibleBounds.left;
     const visibleHeight = visibleBounds.bottom - visibleBounds.top;
 
-    if (!gameActive && wrapVisiblePoint(spawnPoint, visibleBounds, 24) && spawnMarker) updateSpawnMarker();
+    if (!gameActive && !game2Active
+      && wrapVisiblePoint(spawnPoint, visibleBounds, 24) && spawnMarker) updateSpawnMarker();
     for (const field of fields) {
-      if (!gameActive && field.pointers.size === 0 && wrapVisiblePoint(field, visibleBounds, field.radius)) {
+      if (!gameActive && !game2Active && field.pointers.size === 0
+        && wrapVisiblePoint(field, visibleBounds, field.radius)) {
         updateFieldElement(field);
       }
     }
     for (const spawner of recurringSpawners) {
-      if (!gameActive && wrapVisiblePoint(spawner, visibleBounds, 24)) {
+      if (!gameActive && !game2Active && wrapVisiblePoint(spawner, visibleBounds, 24)) {
         spawner.el.style.left = `${spawner.x}px`;
         spawner.el.style.top = `${spawner.y}px`;
       }
     }
-    if (!gameActive) {
+    if (!gameActive && !game2Active) {
       for (const frame of frames) {
         let moved = false;
         if (frame.x + frame.width < visibleBounds.left || frame.x > visibleBounds.right) {
@@ -2134,7 +2582,8 @@
       }
     }
     for (const spawner of recurringSpawners) {
-      if (gameActive || spawner.paused || !objectCapacityAvailable() || t < spawner.nextSpawnAt) continue;
+      if (gameActive || game2Active || spawner.paused || !objectCapacityAvailable()
+        || t < spawner.nextSpawnAt) continue;
       spawner.nextSpawnAt = t + RECURRING_SPAWN_INTERVAL;
       spawnForm(Math.floor(rand(0, FORM_NAMES.length)), spawner.x, spawner.y);
     }
@@ -2205,26 +2654,42 @@
         recordObjectSpeed(o);
         continue;
       }
-      if (!applyFields(o, dt, t)) continue;
+      if (!game2Active && !applyFields(o, dt, t)) continue;
 
       const n = t * 0.0004 + o.seed;
       o.vx += Math.sin(n) * 34 * dt;
       o.vy += Math.cos(n * 1.7) * 34 * dt;
+      if (game2Active && o !== game2Player) {
+        const speedProgress = Math.min(1, game2Elapsed / 60);
+        const driveForce = 110 + 240 * speedProgress;
+        o.vx -= game2DriveX * driveForce * dt;
+        o.vy -= game2DriveY * driveForce * dt;
+        if (game2Elapsed >= 5 && game2Player) {
+          const dx = game2Player.x - o.x;
+          const dy = game2Player.y - o.y;
+          const distance = Math.hypot(dx, dy) || 1;
+          const pursuitForce = 18 + 57 * speedProgress;
+          o.vx += dx / distance * pursuitForce * dt;
+          o.vy += dy / distance * pursuitForce * dt;
+        }
+      }
 
-      const cruise = 75 / Math.sqrt(o.scale);
+      const game2SpeedMultiplier = 1 + Math.min(game2Elapsed, 60) / 20;
+      const cruise = 75 / Math.sqrt(o.scale)
+        * (game2Active ? game2SpeedMultiplier : 1);
       const sp = Math.hypot(o.vx, o.vy);
       if (sp > cruise) {
-        const k = Math.exp(-1.1 * dt);
+        const k = Math.exp(-(game2Active && game2SpeedStage ? 0.45 : 1.1) * dt);
         o.vx *= k;
         o.vy *= k;
-      } else if (sp < cruise * 0.6) {
+      } else if (sp < cruise * 0.9) {
         if (sp < 1) {
           const a = Math.random() * TAU;
           o.vx = Math.cos(a) * 5;
           o.vy = Math.sin(a) * 5;
         } else {
-          o.vx *= 1 + 1.2 * dt;
-          o.vy *= 1 + 1.2 * dt;
+          o.vx *= 1 + 0.65 * dt;
+          o.vy *= 1 + 0.65 * dt;
         }
       }
 
@@ -2233,7 +2698,7 @@
 
       if (o.frame && frames.includes(o.frame)) {
         keepInsideFrame(o, r);
-      } else if (gameActive) {
+      } else if (gameActive || game2Active) {
         if (o.x < r) { o.x = r; o.vx = Math.abs(o.vx) * 0.72; }
         else if (o.x > W - r) { o.x = W - r; o.vx = -Math.abs(o.vx) * 0.72; }
         if (o.y < r) { o.y = r; o.vy = Math.abs(o.vy) * 0.72; }
@@ -2263,6 +2728,7 @@
 
     if (objects.length <= HIGH_DENSITY_THRESHOLD || frameCount % 2 === 0) collide(t);
     updateGameCollisions(t);
+    checkGameTwoCollisions(t, dt);
     updateRoomStats(t);
 
     for (let i = 0; i < objects.length; i++) {
@@ -2322,6 +2788,14 @@
             const d = Math.hypot(dx, dy);
             const min = ra + rb;
             if (d >= min || d < 0.001) continue;
+            if (a.demoOrbit && !b.demoOrbit) a.demoOrbit = null;
+            if (b.demoOrbit && !a.demoOrbit) b.demoOrbit = null;
+            if (game2Active && t >= game2CollisionGraceUntil
+              && (a === game2Player || b === game2Player)) {
+              collisionContacts = currentContacts;
+              finishGameTwo(true);
+              return;
+            }
             const contactKey = `${Math.min(a.id, b.id)}:${Math.max(a.id, b.id)}`;
             currentContacts.add(contactKey);
 
@@ -2338,7 +2812,7 @@
 
             if (!a.held && !b.held && a.tier === b.tier
               && objectCapacityAvailable(MAX_SPLIT_CHILDREN - 2)
-              && (!gameActive || (!a.gameSplitUsed && !b.gameSplitUsed))
+              && (!(gameActive || game2Active) || (!a.gameSplitUsed && !b.gameSplitUsed))
               && a.splitAfter <= t && b.splitAfter <= t) {
               const shouldSplit = splitEnabled
                 || (!collisionContacts.has(contactKey) && Math.random() < 1 / 200);
@@ -2387,7 +2861,7 @@
     let closestDistance = Infinity;
     for (const other of objects) {
       if (other === o || other.held || other.tier !== o.tier
-        || (gameActive && (other.gameSplitUsed || o.gameSplitUsed))
+        || ((gameActive || game2Active) && (other.gameSplitUsed || o.gameSplitUsed))
         || other.splitAfter > performance.now()) continue;
       const d = Math.hypot(other.x - o.x, other.y - o.y);
       const splitDistance = (radius(o) + radius(other)) * 1.04;
@@ -2404,8 +2878,8 @@
   function split(a, b, t) {
     if (a === b || !objects.includes(a) || !objects.includes(b) || a.tier !== b.tier) return false;
     if (!objectCapacityAvailable(MAX_SPLIT_CHILDREN - 2)) return false;
-    if (gameActive && (a.gameSplitUsed || b.gameSplitUsed)) return false;
-    if (gameActive) a.gameSplitUsed = b.gameSplitUsed = true;
+    if ((gameActive || game2Active) && (a.gameSplitUsed || b.gameSplitUsed)) return false;
+    if (gameActive || game2Active) a.gameSplitUsed = b.gameSplitUsed = true;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const vx = (a.vx + b.vx) / 2;
@@ -2454,8 +2928,7 @@
 
   // ---------- first fill of the room ----------
   updateCamera();
-  const dockTop = document.querySelector('.dock').getBoundingClientRect().top;
-  spawnPoint = worldPoint(VIEW_W / 2, Math.max(24, dockTop - 36));
+  spawnPoint = worldPoint(VIEW_W / 2, VIEW_H * 0.3);
   const introObjects = [];
   function createIntroOrb(phase, speed, hue, arriving = false, radiusOffset = 0) {
     const orbitCenter = { x: W / 2, y: H / 2 };
@@ -2491,11 +2964,14 @@
   createIntroOrb(Math.PI, 0.72, 218);
   const originalIntroObjects = [...introObjects];
   setTimeout(() => {
-    if (gameActive || originalIntroObjects.some((object) => !objects.includes(object))) return;
+    if (gameActive || game2Selecting || game2Active
+      || introObjects.length > originalIntroObjects.length
+      || originalIntroObjects.some((object) => !objects.includes(object))) return;
     const third = createIntroOrb(Math.PI / 2, 0.9, 28, true, 82);
     if (!third) return;
     setTimeout(() => {
-      if (gameActive || originalIntroObjects.some((object) => !objects.includes(object))
+      if (gameActive || game2Selecting || game2Active
+        || originalIntroObjects.some((object) => !objects.includes(object))
         || !objects.includes(third)) return;
       if (!createIntroOrb(-Math.PI / 2, 0.78, 310, true, 164)) return;
       setTimeout(() => {
